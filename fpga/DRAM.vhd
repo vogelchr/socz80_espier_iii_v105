@@ -15,7 +15,7 @@
 -- The Papilio Pro board has an 8MB SDRAM chip on the board. The socz80 MMU
 -- provides a 64MB (26-bit) phyiscal address space. The low 32MB of address space
 -- is allocated to the DRAM (the top 32MB being used for other memory devices).
--- 
+--
 -- The low 32MB is divided into two 16MB blocks. Accesses to the first block
 -- (starting at 0MB) go through the cache, while accesses to the second
 -- block (starting at 16MB) bypass the cache. There is only 8MB SDRAM on the
@@ -101,7 +101,7 @@ architecture behaviour of DRAM is
     signal word_changed          : std_logic;                     -- did the address bus value change?
     signal cache_hit             : std_logic;
     signal address_hit           : std_logic;
-    signal byte_valid_hit        : std_logic;                      
+    signal byte_valid_hit        : std_logic;
     signal write_back            : std_logic;
 
     -- state machine
@@ -131,7 +131,7 @@ architecture behaviour of DRAM is
 begin
 
     -- this should be based on the generic, really
-    cmd_address <= mem_address(22 downto 2); -- address_tag & address_line
+    cmd_address <= mem_address(sdram_address_width downto 2); -- address_tag & address_line
     cmd_data_in <= data_in & data_in & data_in & data_in; -- write the same data four times
     cmd_wr <= req_write;
     cache_tag_memory_data_in <= address_tag;
@@ -144,8 +144,8 @@ begin
         write_back <= '0';
         case current_state is
             when st_idle =>
-                if cs = '1' and cmd_ready = '1' then 
-                    if req_read = '1' then 
+                if cs = '1' and cmd_ready = '1' then
+                    if req_read = '1' then
                         -- we can't process a read immediately if the address input just changed; delay them for one cycle.
                         if word_changed = '1' then
                             mem_wait <= '1';
@@ -301,21 +301,21 @@ begin
                 cache_line_memory_data_in <= "1111" & sdram_data_out;
                 cache_line_memory_write_enable <= '1';
             end if;
-        elsif write_back = '1' then 
+        elsif write_back = '1' then
             case address_byte is
                 when "00"   =>
-                    cache_line_memory_data_in <= current_byte_valid(3 downto 1) & "1" & 
+                    cache_line_memory_data_in <= current_byte_valid(3 downto 1) & "1" &
                                                  cache_line_memory_data_out(31 downto  8) & data_in;
                 when "01"   =>
-                    cache_line_memory_data_in <= 
+                    cache_line_memory_data_in <=
                                                 current_byte_valid(3 downto 2) & "1" & current_byte_valid(0) &
                                                 cache_line_memory_data_out(31 downto 16) & data_in & cache_line_memory_data_out(7 downto 0);
                 when "10"   =>
-                    cache_line_memory_data_in <= 
+                    cache_line_memory_data_in <=
                                                 current_byte_valid(3) & "1" & current_byte_valid(1 downto 0) &
                                                 cache_line_memory_data_out(31 downto 24) & data_in & cache_line_memory_data_out(15 downto 0);
                 when "11"   =>
-                    cache_line_memory_data_in <= 
+                    cache_line_memory_data_in <=
                                                 "1" & current_byte_valid(2 downto 0) &
                                                 data_in & cache_line_memory_data_out(23 downto 0);
                 when others => -- shut up, compiler!
@@ -337,13 +337,13 @@ begin
     end process;
 
     -- underlying SDRAM controller (thanks, Hamsterworks!)
-    sdram_ctrl: entity work.SDRAM_Controller 
+    sdram_ctrl: entity work.SDRAM_Controller
     GENERIC MAP(
                 sdram_address_width => sdram_address_width,
                 sdram_column_bits   => sdram_column_bits,
                 sdram_startup_cycles=> sdram_startup_cycles,
                 cycles_per_refresh  => cycles_per_refresh
-               ) 
+               )
     PORT MAP(
                 clk             => clk,
                 reset           => reset,
@@ -379,7 +379,7 @@ begin
         address  => address_line,
         data_in  => cache_line_memory_data_in,
         data_out => cache_line_memory_data_out
-        
+
     );
 
     -- block RAM used to store cache line tag memory (packs nicely into 9 bits)
