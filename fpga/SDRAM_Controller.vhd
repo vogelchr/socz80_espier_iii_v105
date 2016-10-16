@@ -171,6 +171,7 @@ architecture Behavioral of SDRAM_Controller is
    constant start_of_row  : natural := sdram_column_bits+1;
    constant end_of_row    : natural := sdram_address_width-2;
    constant prefresh_cmd  : natural := 10;
+   signal   not_clk        : std_logic;
 begin
    -- Indicate the need to refresh when the counter is 2048,
    -- Force a refresh when the counter is 4096 - (if a refresh is forced, 
@@ -194,9 +195,13 @@ begin
    -- Forward the SDRAM clock to the SDRAM chip - 180 degress 
    -- out of phase with the control signals (ensuring setup and holdup 
   -----------------------------------------------------------
+  -- ISE seems not to synthesize the "C1 => not clk" port map
+  -- Error: Actual for formal port c1 is neither a static name nor a
+  --        globally static expression.
+   not_clk <= not clk;
  sdram_clk_forward : ODDR2
    generic map(DDR_ALIGNMENT => "NONE", INIT => '0', SRTYPE => "SYNC")
-   port map (Q => sdram_clk, C0 => clk, C1 => not clk, CE => '1', R => '0', S => '0', D0 => '0', D1 => '1');
+   port map (Q => sdram_clk, C0 => clk, C1 => not_clk, CE => '1', R => '0', S => '0', D0 => '0', D1 => '1');
 
    -----------------------------------------------
    --!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
