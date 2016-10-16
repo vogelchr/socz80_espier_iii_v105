@@ -19,8 +19,8 @@ library UNISIM;
 use UNISIM.VComponents.all;
 
 entity top_level is
-    Port ( sysclk_32m          : in    std_logic;
-           leds                : out   std_logic_vector(4 downto 0);
+    Port ( sysclk_48m          : in    std_logic;
+           leds                : out   std_logic_vector(3 downto 0);
            reset_button        : in    std_logic;
            console_select      : in    std_logic;
 
@@ -29,10 +29,10 @@ entity top_level is
            serial_tx           : out   std_logic;
 
            -- UART0 (to MAX3232 level shifter chip, hardware flow control)
-           uart1_rx            : in    std_logic;
-           uart1_cts           : in    std_logic;
-           uart1_tx            : out   std_logic;
-           uart1_rts           : out   std_logic;
+--           uart1_rx            : in    std_logic;
+--           uart1_cts           : in    std_logic;
+--           uart1_tx            : out   std_logic;
+--           uart1_rts           : out   std_logic;
 
            -- SPI flash chip
            flash_spi_cs        : out   std_logic;
@@ -41,10 +41,17 @@ entity top_level is
            flash_spi_miso      : in    std_logic;
 
            -- SD card socket
-           sdcard_spi_cs       : out   std_logic;
-           sdcard_spi_clk      : out   std_logic;
-           sdcard_spi_mosi     : out   std_logic;
-           sdcard_spi_miso     : in    std_logic;
+--           sdcard_spi_cs       : out   std_logic;
+--           sdcard_spi_clk      : out   std_logic;
+--           sdcard_spi_mosi     : out   std_logic;
+--           sdcard_spi_miso     : in    std_logic;
+
+           -- Seven Segment Display
+           ss_digit            : out   std_logic_vector(3 downto 0);
+           ss_seg              : out   std_logic_vector(7 downto 0);
+
+           -- 2 user buttons (1 & 2, 3rd is console select, 4th is reset)
+           button              : in    std_logic_vector(2 downto 1);
 
            -- SDRAM chip
            SDRAM_CLK           : out   std_logic;
@@ -61,15 +68,20 @@ entity top_level is
 end top_level;
 
 architecture Behavioral of top_level is
-    constant clk_freq_mhz        : natural := 128; -- this is the frequency which the PLL outputs, in MHz.
+    constant clk_freq_mhz        : natural := 120; -- this is the frequency which the PLL outputs, in MHz.
+
+    -- W9864G6KH6 166 MHz/CL3
+    -- https://www.winbond.com/resource-files/w9864g6kh_a02.pdf
+    -- 1M x 4 Banks * 16 Bits SDRAM
+    -- 4k refresh / 64ms
 
     -- SDRAM configuration
-    constant sdram_address_width : natural := 22;
+    constant sdram_address_width : natural := 22; -- A'length + log2(banks)
     constant sdram_column_bits   : natural := 8;
     constant cycles_per_refresh  : natural := (64000*clk_freq_mhz)/4096-1;
 
     -- For simulation, we don't need a long init stage. but for real DRAM we need approx 101us.
-    -- The constant below has a different value when interpreted by the synthesis and simulator 
+    -- The constant below has a different value when interpreted by the synthesis and simulator
     -- tools in order to achieve the desired timing in each.
     constant sdram_startup_cycles: natural := 101 * clk_freq_mhz
     -- pragma translate_off
@@ -127,6 +139,7 @@ architecture Behavioral of top_level is
     signal spimaster1_cs        : std_logic;
     signal clkscale_cs          : std_logic;
     signal gpio_cs              : std_logic;
+    signal ss_cs                : std_logic;
 
     -- data bus
     signal cpu_data_in          : std_logic_vector(7 downto 0);
@@ -142,6 +155,7 @@ architecture Behavioral of top_level is
     signal mmu_data_out         : std_logic_vector(7 downto 0);
     signal clkscale_out         : std_logic_vector(7 downto 0);
     signal gpio_data_out        : std_logic_vector(7 downto 0);
+    signal ss_data_out          : std_logic_vector(7 downto 0);
 
     -- GPIO
     signal gpio_input           : std_logic_vector(7 downto 0);
@@ -153,6 +167,17 @@ architecture Behavioral of top_level is
     signal uart0_interrupt      : std_logic;
     signal uart1_interrupt      : std_logic;
 
+    -- dummy signal for disable peripherals
+    signal uart1_rx             : std_logic := '1'; -- disable
+    signal uart1_tx             : std_logic;
+    signal uart1_cts            : std_logic := '1'; -- disable
+    signal uart1_rts            : std_logic;
+
+    signal sdcard_spi_clk       : std_logic;
+    signal sdcard_spi_miso      : std_logic := '1';
+    signal sdcard_spi_mosi      : std_logic;
+    signal sdcard_spi_cs        : std_logic;
+
 begin
     -- Hold CPU reset high for 8 clock cycles on startup,
     -- and when the user presses their reset button.
@@ -161,7 +186,8 @@ begin
         if rising_edge(clk) then
             -- Xilinx advises using two flip-flops are used to bring external
             -- signals which feed control logic into our clock domain.
-            reset_button_clk1 <= reset_button;
+	    -- on the espier_iii the polarity is swapped!
+            reset_button_clk1 <= not reset_button;
             reset_button_sync <= reset_button_clk1;
             console_select_clk1 <= console_select;
             console_select_sync <= console_select_clk1;
@@ -197,7 +223,7 @@ begin
     leds(3) <= gpio_output(3);
 
     -- User LED (LED1) on Papilio Pro indicates when the CPU is being asked to wait (eg by the SDRAM cache)
-    leds(4) <= cpu_wait;
+    -- leds(4) <= cpu_wait;
 
     -- Interrupt signal for the CPU
     cpu_interrupt_in <= (timer_interrupt or uart0_interrupt or uart1_interrupt);
@@ -259,6 +285,7 @@ begin
         spimaster1_cs <= '0';
         clkscale_cs   <= '0';
         gpio_cs       <= '0';
+        ss_cs         <= '0';
 
         -- memory address decoding
         -- address space is organised as:
@@ -287,6 +314,7 @@ begin
             when "00100" => gpio_cs             <= req_io;  -- 20 ... 27
             when "00101" => uartB_cs            <= req_io;  -- 28 ... 2F
             when "00110" => spimaster1_cs       <= req_io;  -- 30 ... 37
+            when "00111" => ss_cs               <= req_io;  -- 38 ... 3f
                                                             -- unused ports
             when "11110" => clkscale_cs         <= req_io;  -- F0 ... F7
             when "11111" => mmu_cs              <= req_io;  -- F8 ... FF
@@ -311,8 +339,8 @@ begin
        spimaster1_wait when spimaster1_cs='1' else
        '0';
 
-    -- the MMU can, at any time, request the CPU wait (this is used when 
-    -- translating IO to memory requests, to implement a wait state for 
+    -- the MMU can, at any time, request the CPU wait (this is used when
+    -- translating IO to memory requests, to implement a wait state for
     -- the "17th page")
     cpu_wait <= (mem_wait or mmu_wait);
 
@@ -329,6 +357,7 @@ begin
        spimaster1_data_out when spimaster1_cs='1' else
        clkscale_out        when   clkscale_cs='1' else
        gpio_data_out       when       gpio_cs='1' else
+       ss_data_out         when         ss_cs='1' else
        rom_data_out; -- default case
 
    dram: entity work.DRAM
@@ -493,7 +522,7 @@ begin
 
    -- An attempt to allow the CPU clock to be scaled back to run
    -- at slower speeds without affecting the clock signal sent to
-   -- IO devices. Basically this was an attempt to make CP/M games 
+   -- IO devices. Basically this was an attempt to make CP/M games
    -- playable :) Very limited success. Might be simpler to remove
    -- this entirely.
    clkscale: entity work.clkscale
@@ -510,18 +539,18 @@ begin
 
    -- PLL scales 32MHz Papilio Pro oscillator frequency to 128MHz
    -- clock for our logic.
-   clock_pll: PLL_BASE 
+   clock_pll: PLL_BASE
    generic map (
-               BANDWIDTH      => "OPTIMIZED",        -- "HIGH", "LOW" or "OPTIMIZED" 
-               CLKFBOUT_MULT  => 16,                 -- Multiply value for all CLKOUT clock outputs (1-64)
+               BANDWIDTH      => "OPTIMIZED",        -- "HIGH", "LOW" or "OPTIMIZED"
+               CLKFBOUT_MULT  => 10,                 -- Multiply value for all CLKOUT clock outputs (1-64)
                CLKFBOUT_PHASE => 0.0,                -- Phase offset in degrees of the clock feedback output (0.0-360.0).
-               CLKIN_PERIOD   => 31.25,              -- Input clock period in ns to ps resolution (i.e. 33.333 is 30 MHz).
+               CLKIN_PERIOD   => 20.8,               -- Input clock period in ns to ps resolution (i.e. 33.333 is 30 MHz).
                                                      -- CLKOUT0_DIVIDE - CLKOUT5_DIVIDE: Divide amount for CLKOUT# clock output (1-128)
                CLKOUT0_DIVIDE => 4,                  -- 32MHz * 16 / 4 = 128MHz. Adjust clk_freq_mhz constant (above) if you change this.
                CLKOUT1_DIVIDE => 1,
-               CLKOUT2_DIVIDE => 1,       
+               CLKOUT2_DIVIDE => 1,
                CLKOUT3_DIVIDE => 1,
-               CLKOUT4_DIVIDE => 1,       
+               CLKOUT4_DIVIDE => 1,
                CLKOUT5_DIVIDE => 1,
                                                -- CLKOUT0_DUTY_CYCLE - CLKOUT5_DUTY_CYCLE: Duty cycle for CLKOUT# clock output (0.01-0.99).
                CLKOUT0_DUTY_CYCLE => 0.5, CLKOUT1_DUTY_CYCLE => 0.5,
@@ -533,31 +562,43 @@ begin
                CLKOUT4_PHASE => 0.0,      CLKOUT5_PHASE => 0.0,
 
                CLK_FEEDBACK => "CLKFBOUT",           -- Clock source to drive CLKFBIN ("CLKFBOUT" or "CLKOUT0")
-               COMPENSATION => "SYSTEM_SYNCHRONOUS", -- "SYSTEM_SYNCHRONOUS", "SOURCE_SYNCHRONOUS", "EXTERNAL" 
+               COMPENSATION => "SYSTEM_SYNCHRONOUS", -- "SYSTEM_SYNCHRONOUS", "SOURCE_SYNCHRONOUS", "EXTERNAL"
                DIVCLK_DIVIDE => 1,                   -- Division value for all output clocks (1-52)
                REF_JITTER => 0.1,                    -- Reference Clock Jitter in UI (0.000-0.999).
                RESET_ON_LOSS_OF_LOCK => FALSE        -- Must be set to FALSE
-           ) 
+           )
    port map(
-               CLKIN    => sysclk_32m,   -- 1-bit input: Clock input
+               CLKIN    => sysclk_48m,   -- 1-bit input: Clock input
                CLKFBOUT => clk_feedback, -- 1-bit output: PLL_BASE feedback output
                CLKFBIN  => clk_feedback, -- 1-bit input: Feedback clock input
                                          -- CLKOUT0 - CLKOUT5: 1-bit (each) output: Clock outputs
                CLKOUT0 => clk_unbuffered, -- 64MHz clock output
                CLKOUT1 => open,
-               CLKOUT2 => open,      
+               CLKOUT2 => open,
                CLKOUT3 => open,
-               CLKOUT4 => open,      
+               CLKOUT4 => open,
                CLKOUT5 => open,
                LOCKED  => open,  -- 1-bit output: PLL_BASE lock status output
                RST     => '0'    -- 1-bit input: Reset input
            );
 
    -- Buffering of clocks
-   BUFG_clk: BUFG 
+   BUFG_clk: BUFG
    port map(
-               O => clk,     
+               O => clk,
                I => clk_unbuffered
             );
+
+   ent_seven_seg: entity work.seven_seg port map (
+       clk => clk,
+       reset => system_reset,
+       cpu_address => virtual_address(2 downto 0),
+       data_in => cpu_data_out,
+       data_out => ss_data_out,
+       enable => ss_cs,
+       read_notwrite => req_read,
+       digit => ss_digit,
+       segment => ss_seg
+   );
 
 end Behavioral;
