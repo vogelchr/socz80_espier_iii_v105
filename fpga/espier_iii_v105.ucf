@@ -1,0 +1,135 @@
+# UCF file for the Papilio Pro board
+#
+# Main board wing pin [] to FPGA pin Pxx map
+# -------C-------    -------B-------    -------A-------
+# [GND] [C00] P114   [GND] [B00] P99    P100 [A15]
+# [2V5] [C01] P115   [2V5] [B01] P97    P98 [A14]
+# [3V3] [C02] P116   [3V3] [B02] P92    P93 [A13]
+# [5V0] [C03] P117   [5V0] [B03] P87    P88 [A12]
+#       [C04] P118         [B04] P84    P85 [A11] [5V0]
+#       [C05] P119         [B05] P82    P83 [A10] [3V3]
+#       [C06] P120         [B06] P80    P81 [A09] [2V5]
+#       [C07] P121         [B07] P78    P79 [A08] [GND]
+# [GND] [C08] P123   [GND] [B08] P74    P75 [A07]
+# [2V5] [C09] P124   [2V5] [B09] P95    P67 [A06]
+# [3V3] [C10] P126   [3V3] [B10] P62    P66 [A05]
+# [5V0] [C11] P127   [5V0] [B11] P59    P61 [A04]
+#       [C12] P131         [B12] P57    P58 [A03] [5V0]
+#       [C13] P132         [B13] P55    P56 [A02] [3V3]
+#       [C14] P133         [B14] P50    P51 [A01] [2V5]
+#       [C15] P134         [B15] P47    P48 [A00] [GND]
+
+################################################################################
+# socz80 notes:
+#
+# Most of the hardware connected below is on the Papilio Pro PCB itself: 
+#  - 32MHz oscillator
+#  - One LED
+#  - 8MB SPI Flash non-volatile memory
+#  - 8MB SDRAM volatile memory
+#  - Serial port on FTDI USB interface (no flow control)
+#
+# I have an additional PCB (the "IO board") which connects to the Wing IO pins 
+# and adds the following (optional) interfaces:
+#  - Serial port on MAX3232 RS232 line driver (with hardware RTS/CTS flow control)
+#  - Four LEDs for status indication
+#  - Reset button (resets the machine without clearing SDRAM contents)
+#  - A jumper (used to select which serial port is used as the system console)
+#  - SD card socket
+#
+# Both the MAX3232 and SD card socket are available on convenient breakout boards
+# from Sparkfun. I strongly suggest placing a capacitor across the GND/VCC lines
+# to the SD card socket (I use 100uF) as the SD card will draw a lot of current
+# when it is plugged in (presumably charging an internal capacitor) and this can
+# cause the power supply to the FPGA to dip enough to crash the machine or cause
+# other unpredictable behaviour.
+#
+# The machine can be operated without the IO board. To reset the machine without
+# a dedicated reset button, send the sequence "!~!~!~" through the serial port;
+# the hardware watches for this sequence and asserts the reset line when it is
+# received (it behaves identically to pressing the reset button).
+################################################################################
+
+## Prohibit the automatic placement of pins that are connected to VCC or GND for configuration.
+CONFIG PROHIBIT=P144;
+CONFIG PROHIBIT=P69;
+CONFIG PROHIBIT=P60;
+
+# 32MHz oscillator
+NET sysclk_32m      LOC="P94"  | IOSTANDARD=LVTTL | PERIOD=31.25ns;
+
+# User LEDs
+NET leds(4)         LOC="P112" | DRIVE=12 | IOSTANDARD=LVTTL;   # LED1 on Papilio Pro board
+NET leds(3)         LOC="P126" | DRIVE=24 | IOSTANDARD=LVTTL;   # LED1 on IO board
+NET leds(2)         LOC="P124" | DRIVE=24 | IOSTANDARD=LVTTL;   # LED2 on IO board
+NET leds(1)         LOC="P127" | DRIVE=24 | IOSTANDARD=LVTTL;   # LED3 on IO board
+NET leds(0)         LOC="P123" | DRIVE=24 | IOSTANDARD=LVTTL;   # LED4 on IO board
+
+# RS232 serial (to FTDI USB interface chip on Papilio Pro)
+NET serial_rx       LOC="P101" | IOSTANDARD=LVTTL | DRIVE=8 | SLEW=FAST;
+NET serial_tx       LOC="P105" | IOSTANDARD=LVTTL | DRIVE=8 | SLEW=FAST;
+
+# RS232 serial (to MAX3232 RS232 line driver on IO board)
+NET uart1_rx        LOC="P120" | IOSTANDARD=LVTTL | DRIVE=8 | SLEW=FAST; # IO board MAX3232 (input)
+NET uart1_cts       LOC="P121" | IOSTANDARD=LVTTL | DRIVE=8 | SLEW=FAST; # IO board MAX3232 (input)
+NET uart1_tx        LOC="P118" | IOSTANDARD=LVTTL | DRIVE=8 | SLEW=FAST; # IO board MAX3232 (output)
+NET uart1_rts       LOC="P119" | IOSTANDARD=LVTTL | DRIVE=8 | SLEW=FAST; # IO board MAX3232 (output)
+
+# RESET button on IO board
+NET reset_button    LOC="P131" | IOSTANDARD=LVTTL | PULLDOWN; # IO board
+
+# System console select jumper on IO board
+NET console_select  LOC="P134" | IOSTANDARD=LVTTL | PULLUP; # IO board -- can be optionally pulled to GND through jumper
+
+# SPI to SD card socket on IO board
+NET sdcard_spi_clk  LOC="P116" | IOSTANDARD=LVTTL | SLEW=FAST;
+NET sdcard_spi_cs   LOC="P114" | IOSTANDARD=LVTTL | SLEW=FAST;
+NET sdcard_spi_mosi LOC="P115" | IOSTANDARD=LVTTL | SLEW=FAST;
+NET sdcard_spi_miso LOC="P117" | IOSTANDARD=LVTTL | SLEW=FAST | PULLUP;
+
+# SPI flash on Papilio Pro (MX25L6445E)
+NET flash_spi_cs    LOC="P38"  | IOSTANDARD=LVTTL | SLEW=FAST;
+NET flash_spi_clk   LOC="P70"  | IOSTANDARD=LVTTL | SLEW=FAST;
+NET flash_spi_mosi  LOC="P64"  | IOSTANDARD=LVTTL | SLEW=FAST;
+NET flash_spi_miso  LOC="P65"  | IOSTANDARD=LVTTL | SLEW=FAST | PULLUP;
+
+# SDRAM on Papilio Pro (MT48LC4M16)
+NET SDRAM_ADDR(0)   LOC="P140" | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR0
+NET SDRAM_ADDR(1)   LOC="P139" | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR1
+NET SDRAM_ADDR(2)   LOC="P138" | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR2
+NET SDRAM_ADDR(3)   LOC="P137" | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR3
+NET SDRAM_ADDR(4)   LOC="P46"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR4
+NET SDRAM_ADDR(5)   LOC="P45"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR5
+NET SDRAM_ADDR(6)   LOC="P44"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR6
+NET SDRAM_ADDR(7)   LOC="P43"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR7
+NET SDRAM_ADDR(8)   LOC="P41"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR8
+NET SDRAM_ADDR(9)   LOC="P40"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR9
+NET SDRAM_ADDR(10)  LOC="P141" | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR10
+NET SDRAM_ADDR(11)  LOC="P35"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR11
+NET SDRAM_ADDR(12)  LOC="P34"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR12
+NET SDRAM_DQ(0)     LOC="P9"   | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ0
+NET SDRAM_DQ(1)     LOC="P10"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ1
+NET SDRAM_DQ(2)     LOC="P11"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ2
+NET SDRAM_DQ(3)     LOC="P12"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ3
+NET SDRAM_DQ(4)     LOC="P14"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ4
+NET SDRAM_DQ(5)     LOC="P15"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ5
+NET SDRAM_DQ(6)     LOC="P16"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ6
+NET SDRAM_DQ(7)     LOC="P8"   | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ7
+NET SDRAM_DQ(8)     LOC="P21"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ8
+NET SDRAM_DQ(9)     LOC="P22"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ9
+NET SDRAM_DQ(10)    LOC="P23"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ10
+NET SDRAM_DQ(11)    LOC="P24"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ11
+NET SDRAM_DQ(12)    LOC="P26"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ12
+NET SDRAM_DQ(13)    LOC="P27"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ13
+NET SDRAM_DQ(14)    LOC="P29"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ14
+NET SDRAM_DQ(15)    LOC="P30"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQ15
+NET SDRAM_DQM(0)    LOC="P7"   | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQML
+NET SDRAM_DQM(1)    LOC="P17"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_DQMH
+NET SDRAM_BA(0)     LOC="P143" | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_BA0
+NET SDRAM_BA(1)     LOC="P142" | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_BA1
+NET SDRAM_nWE       LOC="P6"   | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_nWE
+NET SDRAM_nCAS      LOC="P5"   | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_nCAS
+NET SDRAM_nRAS      LOC="P2"   | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_nRAS
+NET SDRAM_CS        LOC="P1"   | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_CS
+NET SDRAM_CLK       LOC="P32"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_CLK
+NET SDRAM_CKE       LOC="P33"  | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_CKE
