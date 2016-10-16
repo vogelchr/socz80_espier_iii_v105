@@ -1,0 +1,3 @@
+#!/bin/bash
+
+for x in $@; do echo "a:recvbin $(basename $x)" > /dev/ttyUSB1; sleep 0.1; /home/btg/projects/socz80/software/cpm2.2/receive/sendbin $x /dev/ttyUSB1; sleep 0.1; done

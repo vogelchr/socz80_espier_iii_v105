@@ -1,0 +1,3 @@
+#!/bin/sh
+
+rm -f bitstream.bit monitor.bin monitor.mem monitor.lst

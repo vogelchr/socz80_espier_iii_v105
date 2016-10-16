@@ -1,0 +1,30 @@
+#!/usr/bin/env python
+
+def readimg(filename, size, strip=0):
+    data = open(filename, 'rb').read()
+    if strip:
+        data = data[:-strip]
+    if len(data) > size:
+        raise RuntimeError, 'Contents of %s is larger than %d bytes' % (filename, size)
+    return data + (chr(0xff) * (size - len(data)))
+
+# CP/M 2.2 and our BIOS will occupy the top 7KB of RAM
+# in a 20KB system this means:
+#    CPM starts at 0x3400, length 5.5KB (5632 bytes)
+#   BIOS starts at 0x4A00, length 1.5KB (1536 bytes)
+#   total is 7KB
+# Assembled CPM image has a 17 entry jump table at the end we need to strip off
+
+cpm_image = readimg("cpm22.bin", 11*512, 17*3)
+bios_image = readimg("cbios.bin", 3*512)
+mem_image = cpm_image + bios_image
+open("cpm.bin", 'wb').write(mem_image)
+
+# also make a version with a bootstrap for writing to ramdisk
+boot_image = readimg("stage2.bin", 4096)
+
+# boot sector is 4KB
+# following two 4KB sectors are loaded at 0xe000 and 0xf000
+system_track = boot_image + (chr(0) * 1024) +  mem_image
+
+open("ramdisk-boot.bin", 'wb').write(system_track)

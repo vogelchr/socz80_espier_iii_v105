@@ -1,0 +1,547 @@
+# File cbios.asm
+0000			; SOCZ80 CP/M 2.2 BIOS (or at least an attempt!) 
+0000			; 2013-11-03 Will Sowerbutts 
+0000			 
+0000			; useful resources: 
+0000			;  http://www.cpm.z80.de/manuals/cpm22-m.pdf 
+0000			;  http://www.retrotechnology.com/dri/howto_cpm.html#myown 
+0000			;  http://www.retrotechnology.com/dri/cpm_features.html 
+0000			;  cpmtools package 
+0000			 
+0000			UART0_STATUS:  equ 0x0000 ; [7: RX READY] [6: TX BUSY] [6 unused bits] 
+0000			UART0_DATA:    equ 0x0001 
+0000			MMU_PAGESEL:   equ 0xF8 
+0000			MMU_PERM:      equ 0xFB 
+0000			MMU_FRAMEHI:   equ 0xFC 
+0000			MMU_FRAMELO:   equ 0xFD 
+0000			 
+0000			msize:   equ 64 ; KB of system RAM 
+0000			bias:    equ (msize-20)*1024 
+0000			ccp:     equ 0x3400+bias 
+0000			bdos:    equ ccp+0x0806 
+0000			bios:    equ ccp+0x1600 
+0000			cdisk:   equ 0x0004 ; current disk number, 0=a, 1=b ... 15=p apparently also current user number is in here (in the top 4 bits?) 
+0000			iobyte:  equ 0x0003 ; intel "standard" i/o byte 
+0000			 
+0000			org bios 
+fa00			 
+fa00			; jump vector table used by CP/M 
+fa00 c3 62 fa		            jp boot         ; cold start 
+fa03 c3 72 fa		wboote:     jp wboot        ; warm start 
+fa06 c3 cb fa		            jp const        ; console status 
+fa09 c3 d6 fa		            jp conin        ; console character in 
+fa0c c3 e4 fa		            jp conout       ; console character out 
+fa0f c3 ee fa		            jp list         ; list character out 
+fa12 c3 f1 fa		            jp punch        ; punch character out 
+fa15 c3 f2 fa		            jp reader       ; reader character out 
+fa18 c3 0b fb		            jp home         ; move disk head to home position 
+fa1b c3 f5 fa		            jp seldsk       ; select disk 
+fa1e c3 0d fb		            jp seltrk       ; set track number 
+fa21 c3 12 fb		            jp setsec       ; set setor number 
+fa24 c3 1a fb		            jp setdma       ; set DMA address 
+fa27 c3 1f fb		            jp read         ; read disk 
+fa2a c3 2c fb		            jp write        ; write disk 
+fa2d c3 ef fa		            jp listst       ; return list status 
+fa30 c3 17 fb		            jp sectran      ; sector translate 
+fa33			 
+fa33			; disk parameter header (16 bytes for each drive), see page 6-28 in CP/M 2.2 operating system manual 
+fa33			dpbase: 
+fa33			            ; disk 0 (A) 
+fa33 00 00		            dw 0            ; sector translation table (0 = no translation) 
+fa35 00 00		            dw 0            ; must be 0 
+fa37 00 00		            dw 0            ; must be 0 
+fa39 00 00		            dw 0            ; must be 0 
+fa3b 5f fc		            dw dirbf        ; DIRBUF (address of shared 128 byte scratch pad area) 
+fa3d 53 fa		            dw dpblk        ; DPB (disk parameter block) 
+fa3f 5f fd		            dw chk00        ; CSV (unique scratch pad used to check for changed disks) 
+fa41 df fc		            dw alv00        ; ALV (unique scratch pad for allocation information) 
+fa43			            ; end of disk 0 
+fa43			 
+fa43			            ; disk 1 (B) 
+fa43 00 00		            dw 0            ; sector translation table (0 = no translation) 
+fa45 00 00		            dw 0            ; must be 0 
+fa47 00 00		            dw 0            ; must be 0 
+fa49 00 00		            dw 0            ; must be 0 
+fa4b 5f fc		            dw dirbf        ; DIRBUF (address of shared 128 byte scratch pad area) 
+fa4d 53 fa		            dw dpblk        ; DPB (disk parameter block) 
+fa4f 5f fd		            dw chk01        ; CSV (unique scratch pad used to check for changed disks) 
+fa51 1f fd		            dw alv01        ; ALV (unique scratch pad for allocation information) 
+fa53			            ; end of disk 1 
+fa53			 
+fa53			ndisks:     equ 2           ; number of disks we defined 
+fa53			 
+fa53			; disk parameter block (can be shared by all disks with same configuration) 
+fa53			; my RAM disks are each 2MB in size; 
+fa53			;     track is 16384 bytes (128 x 128 sectors per track) 
+fa53			;     there are 128 tracks (128 x 128 x 128 = 2MB) 
+fa53			;     track 0 is reserved for the operating system, so there are 2048-16 = 2032 user sectors, and 16KB reserved for OS boot storage (which is plenty) 
+fa53			; using 1K sectors here resulted in a FUCK UP. don't do that! with 4K sectors it seems much happier. 
+fa53			dpblk: 
+fa53 80 00		            dw 128          ; SPT: number of 128 byte sectors per track 
+fa55 05			            db 5            ; BSH: block shift factor (see manual for table) 
+fa56 1f			            db 31           ; BLM: block mask (see manual for table) 
+fa57 01			            db 1            ; EXM: extent mask (see manual for table, using entries marked N/A turns out to be a bad idea!) 
+fa58 fc 01		            dw 508          ; DSM: (disk bytes / block bytes) - 1, change alv00/01 etc if you change this; this is the number of the last sector on the disk, excluding system tracks (ie more system tracks -> this gets smaller) 
+fa5a ff 01		            dw 511          ; DRM: directory max entries - 1 
+fa5c f0			            db 0xf0         ; AL0: directory sector allocation bitmask byte 0 
+fa5d 00			            db 0x00         ; AL1: directory sector allocation bitmask byte 1 
+fa5e 00 00		            dw 0            ; CKS: check size (change chk00/01 etc if you change this) 
+fa60 01 00		            dw 1            ; OFF: track offset (number of system tracks) 
+fa62			 
+fa62			; bios functions follow 
+fa62			boot:        
+fa62			            ; perform standard CPM initialisation 
+fa62 af			            xor a 
+fa63 32 03 00		            ld (iobyte), a 
+fa66 32 04 00		            ld (cdisk), a 
+fa69			            ; say hello 
+fa69 21 fb fb		            ld hl, bootmsg 
+fa6c cd c0 fb		            call strout 
+fa6f c3 aa fa		            jp gocpm 
+fa72			 
+fa72			wboot:      ; warm boot -- reload CCP and then run it again, we also reload BDOS for good measure 
+fa72			            ; CCP+BDOS is located in track 0 at offset 0x1400 ie sector 40 
+fa72			            ; CCP+BDOS is 0x1600 bytes long, ie 44 sectors. 
+fa72			            ; so we read 44 sectors from sector 40 onwards into memory starting at address ccp 
+fa72			 
+fa72			            ; put our stack in the default DMA buffer 
+fa72 31 00 01		            ld sp, 0x100 ; 0x80 ... 0x100 is the default DMA buffer 
+fa75			 
+fa75			            ;    ld hl, wbootmsg 
+fa75			            ;    call strout 
+fa75			            ;    call crlf 
+fa75			 
+fa75			            ; select disk 0 
+fa75 0e 00		            ld c, 0 
+fa77 cd f5 fa		            call seldsk 
+fa7a			 
+fa7a			            ; select track 0 
+fa7a cd 0b fb		            call home 
+fa7d			 
+fa7d			            ; point DMA target at ccp base 
+fa7d 01 00 e4		            ld bc, ccp 
+fa80 cd 1a fb		            call setdma 
+fa83			 
+fa83			            ; select first sector 
+fa83 01 28 00		            ld bc, 40 
+fa86 cd 12 fb		            call setsec 
+fa89			 
+fa89			            ; count of sectors to load 
+fa89 11 2c 00		            ld de, 44 
+fa8c d5			            push de ; store remaining sector count 
+fa8d			 
+fa8d			wbootloop: 
+fa8d			            ; read sector 
+fa8d cd 1f fb		            call read 
+fa90 d1			            pop de  ; recover remaining sector count 
+fa91 1b			            dec de 
+fa92 7a			            ld a, d 
+fa93 b3			            or e 
+fa94 28 14		            jr z, gocpm ; boot CP/M after loading the final sector 
+fa96 d5			            push de ; stash sector count 
+fa97			 
+fa97			            ; advance to next sector 
+fa97 3a 59 fc		            ld a, (cursector) 
+fa9a 3c			            inc a 
+fa9b 32 59 fc		            ld (cursector), a 
+fa9e			 
+fa9e			            ; advance to next DMA address 
+fa9e 2a 5a fc		            ld hl, (curdmaaddr) 
+faa1 01 80 00		            ld bc, 0x80 
+faa4 09			            add hl, bc 
+faa5 22 5a fc		            ld (curdmaaddr), hl 
+faa8			 
+faa8			            ; loop and read in the next sector 
+faa8 18 e3		            jr wbootloop 
+faaa			 
+faaa			gocpm: 
+faaa 3e c3		            ld a, 0xc3      ; 0xc3 is a jmp instruction 
+faac 32 00 00		            ld (0), a       ; write JMP instruction at 0x0000 
+faaf 32 05 00		            ld (5), a       ; write JMP instruction at 0x0005 
+fab2 21 03 fa		            ld hl, wboote 
+fab5 22 01 00		            ld (1), hl      ; write vector for warm boot at 0x0001, 0x0002. 
+fab8 21 06 ec		            ld hl, bdos     ; BDOS entry point 
+fabb 22 06 00		            ld (6), hl      ; write vector for BDOS at 0x0006, 0x0007. 
+fabe 01 80 00		            ld bc, 0x0080   ; default DMA address 
+fac1 cd 1a fb		            call setdma     ; configure DMA 
+fac4 3a 04 00		            ld a, (cdisk)   ; get current disk 
+fac7 4f			            ld c, a         ; send to ccp 
+fac8 c3 00 e4		            jp ccp          ; and we're off! 
+facb			 
+facb			const:      ; read console status 
+facb db 00		            in a, (UART0_STATUS) 
+facd cb 7f		            bit 7, a 
+facf 28 03		            jr z, connotready 
+fad1			            ; we're ready 
+fad1 3e ff		            ld a, 0xff 
+fad3 c9			            ret 
+fad4			connotready: 
+fad4 af			            xor a 
+fad5 c9			            ret 
+fad6			 
+fad6			conin:      ; read character from console into A; wait if no character ready 
+fad6 db 00		            in a, (UART0_STATUS) 
+fad8 cb 7f		            bit 7, a 
+fada 28 fa		            jr z, conin ; keep waiting if no character ready 
+fadc db 01		            in a, (UART0_DATA) ; read character 
+fade			            ; fix backspace 
+fade fe 7f		            cp 0x7f ; backspace? 
+fae0 c0			            ret nz 
+fae1 3e 08		            ld a, 8 ; ctrl-h 
+fae3 c9			            ret 
+fae4			 
+fae4			conout:     ; write chracter from C to console 
+fae4 db 00		            in a, (UART0_STATUS) 
+fae6 cb 77		            bit 6, a 
+fae8 20 fa		            jr nz, conout ; loop again if transmitter is busy 
+faea 79			            ld a, c 
+faeb d3 01		            out (UART0_DATA), a ; transmit character 
+faed c9			            ret 
+faee			 
+faee			list:       ; write character to listing device (we don't have one!) 
+faee c9			            ret 
+faef			 
+faef			listst:     ; return list device status 
+faef af			            xor a       ; 0 = not ready 
+faf0 c9			            ret 
+faf1			 
+faf1			punch:      ; write character to punch device (we don't have one!) 
+faf1 c9			            ret 
+faf2			 
+faf2			reader:     ; read character from reader device (which we don't have) 
+faf2 3e 1a		            ld a, 0x1a ; end of file 
+faf4 c9			            ret 
+faf5			 
+faf5			seldsk:     ; select disk indicated by register C 
+faf5			            ;; push bc 
+faf5			            ;; push bc 
+faf5			            ;; ld hl, seldskmsg 
+faf5			            ;; call strout 
+faf5			            ;; pop bc 
+faf5			            ;; ld a, c 
+faf5			            ;; call outcharhex 
+faf5			            ;; call crlf 
+faf5			            ;; pop bc 
+faf5			 
+faf5 21 00 00		            ld hl, 0    ; return code 0 indicates error 
+faf8 79			            ld a, c 
+faf9 fe 02		            cp ndisks 
+fafb d0			            ret nc      ; return (with error code) if C >= ndisks ie illegal drive 
+fafc 32 57 fc		            ld (curdisk), a ; store current disk 
+faff			            ; compute proper disk parameter header address in HL 
+faff 69			            ld l, c 
+fb00 26 00		            ld h, 0 
+fb02 29			            add hl, hl ; *2 
+fb03 29			            add hl, hl ; *4 
+fb04 29			            add hl, hl ; *8 
+fb05 29			            add hl, hl ; *16 
+fb06			            ; now HL = disk number * 16 
+fb06 11 33 fa		            ld de, dpbase 
+fb09 19			            add hl, de ; HL = dpbase + disk number * 16 
+fb0a c9			            ret 
+fb0b			 
+fb0b 0e 00		home:       ld c, 0 
+fb0d			            ; fall through into seltrk 
+fb0d			seltrk:     ; set track given by register BC 
+fb0d			            ; push bc 
+fb0d			            ; push bc 
+fb0d			            ; ld hl, seltrkmsg 
+fb0d			            ; call strout 
+fb0d			            ; pop bc 
+fb0d			            ; ld a, c 
+fb0d			            ; call outcharhex 
+fb0d			            ; ld c, 0x20 
+fb0d			            ; call conout 
+fb0d			            ; pop bc 
+fb0d			 
+fb0d 79			            ld a, c 
+fb0e 32 58 fc		            ld (curtrack), a 
+fb11 c9			            ret 
+fb12			 
+fb12			setsec:     ; set sector given by register BC 
+fb12			            ; push bc 
+fb12			            ; push bc 
+fb12			            ; ld hl, setsecmsg 
+fb12			            ; call strout 
+fb12			            ; pop bc 
+fb12			            ; ld a, c 
+fb12			            ; call outcharhex 
+fb12			            ; ld c, 0x20 
+fb12			            ; call conout 
+fb12			            ; pop bc 
+fb12			 
+fb12 79			            ld a, c 
+fb13 32 59 fc		            ld (cursector), a 
+fb16 c9			            ret 
+fb17			 
+fb17			sectran:    ; logical to physical sector translation 
+fb17			            ; HL=BC ie 1:1 mapping (no translation) 
+fb17 60			            ld h, b 
+fb18 69			            ld l, c 
+fb19 c9			            ret 
+fb1a			 
+fb1a			setdma:     ; set DMA address given by BC 
+fb1a			            ;;; push bc 
+fb1a			            ;;; push bc 
+fb1a			            ;;; ld hl, setdmamsg 
+fb1a			            ;;; call strout 
+fb1a			            ;;; pop hl 
+fb1a			            ;;; call outwordhex 
+fb1a			            ;;; ld c, 0x20 
+fb1a			            ;;; call conout 
+fb1a			            ;;; pop bc 
+fb1a			 
+fb1a ed 43 5a fc	            ld (curdmaaddr), bc ; may need to xfer to HL first? 
+fb1e c9			            ret 
+fb1f			 
+fb1f			read:       ; read from our RAM disk 
+fb1f			;               ld hl, readmsg 
+fb1f			;               call strout 
+fb1f			;               ld a, (curdisk) 
+fb1f			;               call outcharhex 
+fb1f			;               ld a, (curtrack) 
+fb1f			;               call outcharhex 
+fb1f			;               ld a, (cursector) 
+fb1f			;               call outcharhex 
+fb1f			;               ld c, '@' 
+fb1f			;               call conout 
+fb1f			;               ld a, (curdmaaddr+1) 
+fb1f			;               ld c, a 
+fb1f			;               call outcharhex 
+fb1f			;               ld a, (curdmaaddr) 
+fb1f			;               ld c, a 
+fb1f			;               call outcharhex 
+fb1f cd 32 fb		            call mapmmu 
+fb22			;               ld c, ']' 
+fb22			;               call conout 
+fb22			            ; HL now points to the location where our data is stored 
+fb22			            ; DE now points at the DMA buffer 
+fb22 01 80 00		docopy:     ld bc, 0x80 ; transfer 128 bytes 
+fb25 ed b0		            ldir ; copy copy copy! 
+fb27 cd b0 fb		            call unmapmmu ; put MMU back as it was 
+fb2a af			            xor a ; A=0: success 
+fb2b c9			            ret 
+fb2c			 
+fb2c			write:      ; write to our RAM disk 
+fb2c			;              push bc 
+fb2c			;              push hl 
+fb2c			;              push de 
+fb2c			;              ld hl, writemsg 
+fb2c			;              call strout 
+fb2c			;              ld a, (curdisk) 
+fb2c			;              call outcharhex 
+fb2c			;              ld a, (curtrack) 
+fb2c			;              call outcharhex 
+fb2c			;              ld a, (cursector) 
+fb2c			;              call outcharhex 
+fb2c			;              ld c, '@' 
+fb2c			;              call conout 
+fb2c			;              ld a, (curdmaaddr+1) 
+fb2c			;              ld c, a 
+fb2c			;              call outcharhex 
+fb2c			;              ld a, (curdmaaddr) 
+fb2c			;              ld c, a 
+fb2c			;              call outcharhex 
+fb2c cd 32 fb		            call mapmmu 
+fb2f			;              ld c, ']' 
+fb2f			;              call conout 
+fb2f			 
+fb2f			            ; HL now points to the location where our data is stored 
+fb2f			            ; DE points to the DMA buffer 
+fb2f eb			            ex de, hl ; swap HL/DE 
+fb30 18 f0		            jr docopy 
+fb32			 
+fb32			mapmmu:     ; use MMU to map the physical page corresponding to the drive data 
+fb32			            ; 
+fb32			            ; CPM address = drive number / 7 bit track / 7 bit sector / 7 bits byte offset 
+fb32			            ; Physical address: 
+fb32			            ;   bits 22-21: drive number+1 (2 bits) 
+fb32			            ;   bits 20-14: track number (7 bits) 
+fb32			            ;   bits 13-7:  sector number (7 bits) 
+fb32			            ;   bits 6-0:   byte offset (7 bits) 
+fb32			            ; CPM:   DDTTTTTTTSSSSSSSOOOOOOO  (2 bit drive, 7 bit track, 7 bit sector, 7 bit offset) 
+fb32			            ; Phys:  PPPPPPPPPPPOOOOOOOOOOOO  (11 bit page frame number, 12 bit page offset) 
+fb32			            ; MMU:   HHHLLLLLLLL              (3 bit hi, 8 bit low, low 12 bits come from logical address accessed) 
+fb32			 
+fb32			            ; start by picking where in our address space to map the disk memory 
+fb32			            ; we know PC is in Fxxx so we can't use that 
+fb32			            ; we have to avoid SP and the target DMA address 
+fb32			            ; SP >= 0x8000 -> use 0x2000 unless DMA is in 0x2000 in which case use 0x4000 
+fb32			            ; SP  < 0x8000 -> use 0xA000 unless DMA is in 0xA000 in which case use 0xC000 
+fb32			 
+fb32 21 00 00		            ld hl, 0    ; you can't read sp ... 
+fb35 39			            add hl, sp  ; but you can add it to hl! 
+fb36			            ; re-use l register 
+fb36 3a 5b fc		            ld a, (curdmaaddr+1) 
+fb39 e6 f0		            and 0xf0 
+fb3b 6f			            ld l, a     ; store top 4 bits of DMA address in L 
+fb3c 7c			            ld a, h     ; test top bit of SP 
+fb3d e6 80		            and 0x80 
+fb3f 28 0d		            jr z, use_a0   ; top bit of SP is not set, SP is in low 32K 
+fb41			            ; top bit of SP is set, SP is in high 32K 
+fb41 7d			            ld a, l 
+fb42 fe 20		            cp 0x20 
+fb44 28 04		            jr z, use_40 
+fb46 3e 02		            ld a, 0x2 
+fb48 18 0f		            jr foundframe 
+fb4a 3e 04		use_40:     ld a, 0x4 
+fb4c 18 0b		            jr foundframe 
+fb4e 7d			use_a0:     ld a, l 
+fb4f fe a0		            cp 0xa0 
+fb51 28 04		            jr z, use_c0 
+fb53 3e 0a		            ld a, 0xa 
+fb55 18 02		            jr foundframe 
+fb57 3e 0c		use_c0:     ld a, 0xc 
+fb59			            ; fall through to foundframe 
+fb59			foundframe: ; selected frame in register a 
+fb59 d3 f8		            out (MMU_PAGESEL), a ; select page frame 
+fb5b a7			            and a ; clear carry flag (for rla) 
+fb5c 17			            rla   ; shift left four bits 
+fb5d 17			            rla 
+fb5e 17			            rla 
+fb5f 17			            rla 
+fb60 67			            ld h, a              ; set the top four bits of h 
+fb61			            ; store current MMU state 
+fb61 db fb		            in a, (MMU_PERM) 
+fb63 32 5c fc		            ld (mmutemp0), a 
+fb66 db fc		            in a, (MMU_FRAMEHI) 
+fb68 32 5d fc		            ld (mmutemp1), a 
+fb6b db fd		            in a, (MMU_FRAMELO) 
+fb6d 32 5e fc		            ld (mmutemp2), a 
+fb70			            ; now compute MMU_FRAMEHI value (physical address of RAM disk sector) 
+fb70 3a 57 fc		            ld a, (curdisk) 
+fb73 3c			            inc a             ; we use disk+1 so first disk starts at physical address 2MB 
+fb74 cb 27		            sla a             ; shift A left one position, load 0 into bit 0 
+fb76 47			            ld b, a 
+fb77 3a 58 fc		            ld a, (curtrack) 
+fb7a e6 40		            and 0x40          ; test top bit of 7-bit track number 
+fb7c 28 01		            jr z, framehiready 
+fb7e 04			            inc b             ; load top bit of track into B 
+fb7f			framehiready: 
+fb7f 78			            ld a, b 
+fb80 d3 fc		            out (MMU_FRAMEHI), a 
+fb82			;               ld d, a 
+fb82			            ; now compute MMU_FRAMELO value (physical address of RAM disk sector) 
+fb82 3a 58 fc		            ld a, (curtrack) 
+fb85 cb 27		            sla a 
+fb87 cb 27		            sla a 
+fb89 47			            ld b, a         ; the bottom 6 bits of the track number are now in the top 6 bits of B, with 00 in the low two bits 
+fb8a 3a 59 fc		            ld a, (cursector) ; we only want the top two bits of this 7-bit number 
+fb8d cb 3f		            srl a 
+fb8f cb 3f		            srl a 
+fb91 cb 3f		            srl a 
+fb93 cb 3f		            srl a 
+fb95 cb 3f		            srl a 
+fb97 e6 03		            and 0x03 ; mask off the low two bits (potentially cursector had the top bit set I suppose?) 
+fb99 b0			            or b     ; merge in the 6 bits of track number 
+fb9a d3 fd		            out (MMU_FRAMELO), a 
+fb9c			;               ld e, a 
+fb9c			;               ld c, ';' 
+fb9c			;               call conout 
+fb9c			;               ex de, hl 
+fb9c			;               push de 
+fb9c			;               call outwordhex 
+fb9c			;               pop de 
+fb9c			;               ex de, hl 
+fb9c			;               ld c, '.' 
+fb9c			;               call conout 
+fb9c			            ; brilliant, now it's mapped! finally compute HL to point to the start of the data buffer 
+fb9c 2e 00		            ld l, 0 
+fb9e 3a 59 fc		            ld a, (cursector) 
+fba1 cb 3f		            srl a            ; shift A right one bit, bottom bit goes into carry flag 
+fba3 30 02		            jr nc, lready    ; test carry flag and ... 
+fba5 2e 80		            ld l, 0x80       ; ... bump up L to the next sector if it was 1 
+fba7 e6 0f		lready:     and 0x0f         ; we only want four bits 
+fba9 b4			            or h             ; merge in the frame number computed earlier 
+fbaa 67			            ld h, a          ; store it in H 
+fbab			;               call outwordhex 
+fbab ed 5b 5a fc	            ld de, (curdmaaddr) ; load DE with source/target address 
+fbaf c9			            ret 
+fbb0			 
+fbb0			unmapmmu:   ; put MMU mapping for frame back as it was 
+fbb0 3a 5c fc		            ld a, (mmutemp0) 
+fbb3 d3 fb		            out (MMU_PERM), a 
+fbb5 3a 5d fc		            ld a, (mmutemp1) 
+fbb8 d3 fc		            out (MMU_FRAMEHI), a 
+fbba 3a 5e fc		            ld a, (mmutemp2) 
+fbbd d3 fd		            out (MMU_FRAMELO), a 
+fbbf c9			            ret 
+fbc0			 
+fbc0			;--------------------------------------------------------------------------------------------------------------- 
+fbc0			; debug functions (ideally to be removed in final version, if we ever get that far!) 
+fbc0			strout:     ; print string pointed to by HL 
+fbc0 7e			            ld a, (hl) 
+fbc1 fe 00		            cp 0 
+fbc3 c8			            ret z 
+fbc4 4f			            ld c, a 
+fbc5 cd e4 fa		            call conout 
+fbc8 23			            inc hl 
+fbc9 18 f5		            jr strout 
+fbcb			 
+fbcb			outwordhex: ; print the word in HL as a four-char hex value 
+fbcb 7c			            ld a, h 
+fbcc cd d4 fb		            call outcharhex 
+fbcf 7d			            ld a, l 
+fbd0 cd d4 fb		            call outcharhex 
+fbd3 c9			            ret 
+fbd4			 
+fbd4			outcharhex: ; print byte in A as two-char hex value 
+fbd4 57			            ld d, a ; copy 
+fbd5 1f			            rra 
+fbd6 1f			            rra 
+fbd7 1f			            rra 
+fbd8 1f			            rra 
+fbd9 cd ec fb		            call outnibble 
+fbdc 7a			            ld a, d 
+fbdd cd ec fb		            call outnibble 
+fbe0 c9			            ret 
+fbe1			 
+fbe1			crlf: 
+fbe1 0e 0d		            ld c, 0x0d 
+fbe3 cd e4 fa		            call conout 
+fbe6 0e 0a		            ld c, 0x0a 
+fbe8 cd e4 fa		            call conout 
+fbeb c9			            ret 
+fbec			 
+fbec e6 0f		outnibble:  and 0x0f 
+fbee fe 0a		            cp 10 
+fbf0 38 02		            jr c, numeral 
+fbf2 c6 07		            add 0x07 
+fbf4 c6 30		numeral:    add 0x30 
+fbf6 4f			            ld c, a 
+fbf7 cd e4 fa		            call conout 
+fbfa c9			            ret 
+fbfb			 
+fbfb .. 00		bootmsg:    db "\rCP/M BIOS (Will Sowerbutts, 2013-11-05)\r\nCP/M 2.2 Copyright 1979 (c) by Digital Research\r\n", 0 
+fc57			;; wbootmsg:   db "WBOOT ", 0 
+fc57			;; readmsg:    db "[RD ", 0 
+fc57			;; writemsg:   db "[WR ", 0 
+fc57			;; seldskmsg:  db "SELDSK ", 0 
+fc57			;; seltrkmsg:  db "SELTRK ", 0 
+fc57			;; setsecmsg:  db "SETSEC ", 0 
+fc57			;; setdmamsg:  db "SETDMA ", 0 
+fc57			 
+fc57			;--------------------------------------------------------------------------------------------------------------- 
+fc57			 
+fc57			 
+fc57			 
+fc57			; scratch RAM used by BIOS 
+fc57 55			curdisk:    db 0x55 
+fc58 55			curtrack:   db 0x55 
+fc59 55			cursector:  db 0x55 
+fc5a 55 55		curdmaaddr: dw 0x5555 
+fc5c 55			mmutemp0:   db 0x55 
+fc5d 55			mmutemp1:   db 0x55 
+fc5e 55			mmutemp2:   db 0x55 
+fc5f			 
+fc5f			; scratch RAM used by BDOS 
+fc5f 00...		dirbf:      ds 128           ; directory scratch area 
+fcdf 00...		alv00:      ds 64            ; allocation vector for disk 0, must be (DSM/8)+1 bytes 
+fd1f 00...		alv01:      ds 64            ; allocation vector for disk 1, must be (DSM/8)+1 bytes 
+fd5f 00...		chk00:      ds 0             ; check vector for disk 0 (must be CKS bytes long) 
+fd5f 00...		chk01:      ds 0             ; check vector for disk 1 (must be CKS bytes long) 
+fd5f			 
+fd5f ..			db "</bios>" 
+fd66			; we point the stack at 0x0000 on restart, so that may overwrite the very end of RAM. 
+# End of file cbios.asm
+fd66

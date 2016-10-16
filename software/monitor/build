@@ -1,0 +1,12 @@
+#!/bin/bash
+
+PROGRAM=$1
+if [ "$PROGRAM" == "" ]; then
+    PROGRAM=./monitor.asm
+fi
+
+echo Building $PROGRAM
+z80asm $PROGRAM -o monitor.bin --list=monitor.lst
+# ../tools/make_vhdl_rom ./monitor.bin ../../fpga/MonZ80_template.vhd 4096 > ../../fpga/MonZ80.vhd
+../tools/make_mem_file ./monitor.bin > ./monitor.mem
+data2mem -bm socz80_bd.bmm -bt ../../papilio_pro_spartan6.bit -bd ./monitor.mem -o b bitstream.bit

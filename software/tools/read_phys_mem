@@ -1,0 +1,135 @@
+#!/usr/bin/env python
+
+import sys, time
+import serial
+import re
+
+PROMPT = "Z80> "
+# match lines like '0B90: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00'
+DMRE = re.compile(r"([0-9A-F]{4}):((?: [0-9A-F][0-9A-F]){1,16})")
+
+try:
+    phys_addr = int(sys.argv[2], 16)
+    byte_count = int(sys.argv[3], 16)
+    port = serial.Serial(sys.argv[4], 115200, timeout=0.001, writeTimeout=5)
+    # open the file last, in case one of the above fails
+    datafile = open(sys.argv[1], 'wb')
+except Exception, e:
+    print "Exception: %s" % str(e)
+    print "%s filename physaddr length port" % (sys.argv[0],)
+    print "phyaddr, length both in hex bytes, eg 2MB = 200000"
+    sys.exit(1)
+
+def cmd(x):
+    # print "command: %r" % x
+    port.write(x + '\n')
+    return waitprompt()
+    # sleep not necessary with deep FIFO
+    # time.sleep((len(x) + 12) * 1.0/10000.)
+
+def waitfor(expected):
+    # print "waitfor(%r)" % expected
+    le = len(expected)
+    inp = list()
+    last = time.time()
+    while True:
+        bytes = port.read(1024)
+        if bytes == '':
+            if time.time() - last > 3.0:
+                raise RuntimeError, 'Timeout waiting for %r (got: %r)' % (expected, ''.join(inp))
+        else:
+            last = time.time()
+            inp.append(bytes)
+        if ''.join(inp[-le:]).endswith(expected):
+            return ''.join(inp)
+
+def waitprompt():
+    return waitfor(PROMPT)
+
+def readpage():
+    data = cmd("dm 0 1000")
+    lines = data.split("\r\n")
+    # check:
+    if not lines[0] == "dm 0 1000":
+        raise RuntimeError, 'Lost sync, no command (%r)' % lines
+    bytes = []
+    addr = 0
+    for line in lines[1:]:
+        if line == PROMPT:
+            break
+        # line should be: '0B90: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00'
+        match = DMRE.match(line)
+
+        if not match:
+            raise RuntimeError, 'Lost sync, unexpected line format (%r)' % lines
+
+        found_addr = int(match.group(1), 16)
+
+        if found_addr != addr:
+            raise RuntimeError, 'Lost sync, unexpected address (%r)' % lines
+
+        found_bytes = ''.join([chr(int(x, 16)) for x in match.group(2).split()])
+
+        bytes.append(found_bytes)
+        addr += len(found_bytes)
+
+    bytes = ''.join(bytes)
+    if len(bytes) != 4096:
+        raise RuntimeError, 'Lost sync, unexpected page length %d (%r)' % (len(bytes), lines)
+    return bytes
+
+
+# sync with the montor program
+print "Checking for monitor ..."
+cmd("") # just send a newline
+print "Found monitor program"
+
+
+print "Reading 0x%x bytes from 0x%x--0x%x into %s (port %s)" % (byte_count, phys_addr, phys_addr+byte_count-1, sys.argv[1], sys.argv[4])
+start = time.time()
+
+# prepare to abuse the MMU
+cmd("@out f8 0")
+addr = phys_addr
+remaining = byte_count
+count = 0
+est_remain = 0
+
+while True:
+    sys.stdout.write("\raddress 0x%08x, remaining %d, ETA %dm%02ds             " % (addr, remaining, est_remain // 60, est_remain % 60 ))
+    sys.stdout.flush()
+    # map in page
+    page = addr // 4096
+    cmd("@out fb 03 %02x %02x" % (page >> 8 & 0xff, page & 0xff))
+
+    # read the whole page in
+    data = readpage()
+
+    # skip bytes we don't want at the start (if any)
+    if addr % 4096:
+        data = data[(addr % 4096):]
+
+    # truncate to desired length
+    if len(data) > remaining:
+        data = data[:remaining]
+
+    # write to file
+    datafile.write(data)
+
+    # adjust pointers
+    remaining -= len(data)
+    addr += len(data)
+    
+    taken = time.time() - start
+    if taken != 0.0:
+        est_remain = float(remaining) / ((byte_count - remaining) / taken)
+
+    if remaining == 0:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        break
+
+# put MMU back as it (probably) was
+cmd("@out fb 03 00 00")
+
+sys.stderr.write("Loaded %d bytes, %.3fKB/sec\n" % (byte_count, float(byte_count)/1024./taken))

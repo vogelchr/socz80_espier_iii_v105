@@ -1,0 +1,100 @@
+#!/usr/bin/env python
+
+import sys, time
+
+try:
+    datafile = open(sys.argv[1], 'rb')
+    datafile.seek(0, 2)
+    datafile_len = datafile.tell()
+    datafile.seek(0, 0)
+    phys_addr = int(sys.argv[2], 16)
+    start_addr = phys_addr
+    count = 0
+
+    port = open(sys.argv[3], 'w')
+
+    if len(sys.argv) > 4:
+        delta = open(sys.argv[4], 'rb')
+    else:
+        delta = None
+
+except Exception, e:
+    print "Exception: %s" % str(e)
+    print ""
+    print "Syntax: %s filename physaddr port [delta filename]" % (sys.argv[0],)
+    print ""
+    print "phyaddr is in bytes eg 2MB = 200000"
+    print "/dev/zero can be a useful filename for delta"
+    sys.exit(1)
+
+def cmd(x):
+    port.write(x + '\n')
+    # sleep not necessary with deep FIFO
+    # time.sleep((len(x) + 12) * 1.0/10000.)
+
+def writepage(addr, data):
+    page = addr // 4096
+    laddr = addr % 4096
+    count = 0
+
+    # write using page 0
+    cmd("@out fb 03 %02x %02x" % (page >> 8 & 0xff, page & 0xff))
+
+    while data != '':
+        line = data[:16]
+        data = data[16:]
+        cmd("@wm %04x %s" % (laddr, ' '.join('%02X' % ord(byte) for byte in line)))
+        laddr += len(line)
+        count += len(line)
+
+    return count
+
+def writepagedelta(addr, data, compare):
+    page = addr // 4096
+    laddr = addr % 4096
+    count = 0
+    mapped = False
+
+
+    while data != '':
+        line = data[:16]
+        data = data[16:]
+        cline = compare[:16]
+        compare = compare[16:]
+        if cline != line:
+            if not mapped:
+                mapped = True
+                cmd("@out fb 03 %02x %02x" % (page >> 8 & 0xff, page & 0xff))
+            cmd("@wm %04x %s" % (laddr, ' '.join('%02X' % ord(byte) for byte in line)))
+        laddr += len(line)
+        count += len(line)
+
+    return count
+
+start = time.time()
+# prepare to abuse the MMU
+cmd("@out f8 0")
+
+while True:
+    # read up to the end of this physical page
+    bytes = 4096 - (phys_addr % 4096)
+    page_data = datafile.read(bytes)
+    if page_data == '':
+        break
+
+    if delta:
+        compare_data = delta.read(bytes)
+    
+    print "Writing %d bytes at 0x%07x (%.3fMB) (%.1f%%)" % (len(page_data), phys_addr, float(phys_addr) / (1024.*1024.), float(count)*100/datafile_len)
+    if delta:
+        written = writepagedelta(phys_addr, page_data, compare_data)
+    else:
+        written = writepage(phys_addr, page_data)
+    phys_addr += written
+    count += written
+
+# put MMU back as it was
+cmd("@out fb 03 00 00")
+taken = time.time() - start
+
+sys.stderr.write("Loaded %d bytes from 0x%04x to 0x%04x (%d x 256 byte pages) %.3fKB/sec\n" % (count, start_addr, phys_addr, (count+255)//256, float(count)/1024./taken))

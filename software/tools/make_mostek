@@ -1,0 +1,11 @@
+#!/usr/bin/env python
+
+# add a mostek header to a file, so it can be read by z80sim
+
+import sys, time
+
+data = open(sys.argv[1], 'rb').read()
+addr = int(sys.argv[2], 16)
+
+sys.stdout.write(chr(0xff) + chr(addr & 0xff) + chr((addr >> 8) & 0xff))
+sys.stdout.write(data)

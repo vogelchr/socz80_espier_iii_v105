@@ -1,0 +1,7 @@
+#!/bin/bash
+
+# build MPMLDR.COM
+zmac -z ldrbios.asm && ./mergeldr zout/ldrbios.cim dist/MPMLDR.COM MPMLDR.COM
+
+# assemble (but not link) XIOS
+zmac -z --rel resxios.asm && echo "New XIOS assembled into zout/resxios.rel"

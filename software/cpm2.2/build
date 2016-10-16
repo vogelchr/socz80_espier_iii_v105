@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# second stage bootloader
+z80asm stage2.asm -o stage2.bin
+
+# 64KB CP/M system
+z80asm cpm22.asm -o cpm22.bin --list=cpm22.lst && z80asm cbios.asm -o cbios.bin --list=cbios.lst && ./mergecpm
+
+# write to system
+../tools/write_phys_mem ./ramdisk-boot.bin 200000 /dev/ttyUSB1

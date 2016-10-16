@@ -1,0 +1,8 @@
+ADDRESS_SPACE bram_block COMBINED [0x0000:0x0fff]
+    ADDRESS_RANGE RAMB16
+        BUS_BLOCK
+            rom/Mram_byte_rom2 [3:0];
+            rom/Mram_byte_rom1 [7:4];
+        END_BUS_BLOCK;
+    END_ADDRESS_RANGE;
+END_ADDRESS_SPACE;

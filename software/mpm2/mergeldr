@@ -1,0 +1,23 @@
+#!/usr/bin/env python
+
+import sys
+
+def readimg(filename, size, strip=0):
+    data = open(filename, 'rb').read()
+    if strip:
+        data = data[:-strip]
+    if len(data) > size:
+        raise RuntimeError, 'Contents of %s is larger than %d bytes (got %d bytes)' % (filename, size, len(data))
+    return data + (chr(0xff) * (size - len(data)))
+
+# MPMLDR.COM is loaded at address 0x100
+# Our BIOS is loaded at address 0x1700 and should not extend beyond 0x1A00
+
+ldrbios_image = readimg(sys.argv[1], 0x1a00-0x1700)
+mpmldr_image = readimg(sys.argv[2], 0x1700-0x100, 128)
+
+mpmldr_com = mpmldr_image + ldrbios_image
+
+open(sys.argv[3], 'wb').write(mpmldr_com)
+
+print "mergeldr: Combined %s and %s into new %s (0x%04x bytes)" % (sys.argv[1], sys.argv[2], sys.argv[3], len(mpmldr_com))

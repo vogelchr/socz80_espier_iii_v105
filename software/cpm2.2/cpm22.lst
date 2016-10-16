@@ -1,0 +1,3742 @@
+# File cpm22.asm
+0000			;************************************************************** 
+0000			;* 
+0000			;*             C P / M   version   2 . 2 
+0000			;* 
+0000			;*   Reconstructed from memory image on February 27, 1981 
+0000			;* 
+0000			;*                by Clark A. Calkins 
+0000			;* 
+0000			;************************************************************** 
+0000			; 
+0000			;   Set memory limit here. This is the amount of contigeous 
+0000			; ram starting from 0000. CP/M will reside at the end of this space. 
+0000			; 
+0000			MEM:	EQU	64		;for a 64k system (TS802 TEST - WORKS OK). 
+0000			; 
+0000			IOBYTE:	EQU	3		;i/o definition byte. 
+0000			TDRIVE:	EQU	4		;current drive name and user number. 
+0000			ENTRY:	EQU	5		;entry point for the cp/m bdos. 
+0000			TFCB:	EQU	5CH		;default file control block. 
+0000			TBUFF:	EQU	80H		;i/o buffer and command line storage. 
+0000			TBASE:	EQU	100H		;transiant program storage area. 
+0000			; 
+0000			;   Set control character equates. 
+0000			; 
+0000			CNTRLC:	EQU	3		;control-c 
+0000			CNTRLE:	EQU	05H		;control-e 
+0000			BS:	EQU	08H		;backspace 
+0000			TAB:	EQU	09H		;tab 
+0000			LF:	EQU	0AH		;line feed 
+0000			FF:	EQU	0CH		;form feed 
+0000			CR:	EQU	0DH		;carriage return 
+0000			CNTRLP:	EQU	10H		;control-p 
+0000			CNTRLR:	EQU	12H		;control-r 
+0000			CNTRLS:	EQU	13H		;control-s 
+0000			CNTRLU:	EQU	15H		;control-u 
+0000			CNTRLX:	EQU	18H		;control-x 
+0000			CNTRLZ:	EQU	1AH		;control-z (end-of-file mark) 
+0000			DEL:	EQU	7FH		;rubout 
+0000			; 
+0000			;   Set origin for CP/M 
+0000			; 
+0000				ORG	(MEM-7)*1024 
+e400			; 
+e400 c3 5c e7		CBASE:	JP	COMMAND		;execute command processor (ccp). 
+e403 c3 58 e7			JP	CLEARBUF	;entry to empty input buffer before starting ccp. 
+e406			 
+e406			; 
+e406			;   Standard cp/m ccp input buffer. Format is (max length), 
+e406			; (actual length), (char #1), (char #2), (char #3), etc. 
+e406			; 
+e406 7f			INBUFF:	DEFB	127		;length of input buffer. 
+e407 00				DEFB	0		;current length of contents. 
+e408 ..				DEFB	'Copyright' 
+e411 ..				DEFB	' 1979 (c) by Digital Research      ' 
+e434 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00		DEFB	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
+e44b 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00		DEFB	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
+e462 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00		DEFB	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
+e479 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00		DEFB	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
+e488 08 e4		INPOINT:DEFW	INBUFF+2	;input line pointer 
+e48a 00 00		NAMEPNT:DEFW	0		;input line pointer used for error message. Points to 
+e48c			;			;start of name in error. 
+e48c			; 
+e48c			;   Routine to print (A) on the console. All registers used. 
+e48c			; 
+e48c 5f			PRINT:	LD	E,A		;setup bdos call. 
+e48d 0e 02			LD	C,2 
+e48f c3 05 00			JP	ENTRY 
+e492			; 
+e492			;   Routine to print (A) on the console and to save (BC). 
+e492			; 
+e492 c5			PRINTB:	PUSH	BC 
+e493 cd 8c e4			CALL	PRINT 
+e496 c1				POP	BC 
+e497 c9				RET	 
+e498			; 
+e498			;   Routine to send a carriage return, line feed combination 
+e498			; to the console. 
+e498			; 
+e498 3e 0d		CRLF:	LD	A,CR 
+e49a cd 92 e4			CALL	PRINTB 
+e49d 3e 0a			LD	A,LF 
+e49f c3 92 e4			JP	PRINTB 
+e4a2			; 
+e4a2			;   Routine to send one space to the console and save (BC). 
+e4a2			; 
+e4a2 3e 20		SPACE:	LD	A,' ' 
+e4a4 c3 92 e4			JP	PRINTB 
+e4a7			; 
+e4a7			;   Routine to print character string pointed to be (BC) on the 
+e4a7			; console. It must terminate with a null byte. 
+e4a7			; 
+e4a7 c5			PLINE:	PUSH	BC 
+e4a8 cd 98 e4			CALL	CRLF 
+e4ab e1				POP	HL 
+e4ac 7e			PLINE2:	LD	A,(HL) 
+e4ad b7				OR	A 
+e4ae c8				RET	Z 
+e4af 23				INC	HL 
+e4b0 e5				PUSH	HL 
+e4b1 cd 8c e4			CALL	PRINT 
+e4b4 e1				POP	HL 
+e4b5 c3 ac e4			JP	PLINE2 
+e4b8			; 
+e4b8			;   Routine to reset the disk system. 
+e4b8			; 
+e4b8 0e 0d		RESDSK:	LD	C,13 
+e4ba c3 05 00			JP	ENTRY 
+e4bd			; 
+e4bd			;   Routine to select disk (A). 
+e4bd			; 
+e4bd 5f			DSKSEL:	LD	E,A 
+e4be 0e 0e			LD	C,14 
+e4c0 c3 05 00			JP	ENTRY 
+e4c3			; 
+e4c3			;   Routine to call bdos and save the return code. The zero 
+e4c3			; flag is set on a return of 0ffh. 
+e4c3			; 
+e4c3 cd 05 00		ENTRY1:	CALL	ENTRY 
+e4c6 32 ee eb			LD	(RTNCODE),A	;save return code. 
+e4c9 3c				INC	A		;set zero if 0ffh returned. 
+e4ca c9				RET	 
+e4cb			; 
+e4cb			;   Routine to open a file. (DE) must point to the FCB. 
+e4cb			; 
+e4cb 0e 0f		OPEN:	LD	C,15 
+e4cd c3 c3 e4			JP	ENTRY1 
+e4d0			; 
+e4d0			;   Routine to open file at (FCB). 
+e4d0			; 
+e4d0 af			OPENFCB:XOR	A		;clear the record number byte at fcb+32 
+e4d1 32 ed eb			LD	(FCB+32),A 
+e4d4 11 cd eb			LD	DE,FCB 
+e4d7 c3 cb e4			JP	OPEN 
+e4da			; 
+e4da			;   Routine to close a file. (DE) points to FCB. 
+e4da			; 
+e4da 0e 10		CLOSE:	LD	C,16 
+e4dc c3 c3 e4			JP	ENTRY1 
+e4df			; 
+e4df			;   Routine to search for the first file with ambigueous name 
+e4df			; (DE). 
+e4df			; 
+e4df 0e 11		SRCHFST:LD	C,17 
+e4e1 c3 c3 e4			JP	ENTRY1 
+e4e4			; 
+e4e4			;   Search for the next ambigeous file name. 
+e4e4			; 
+e4e4 0e 12		SRCHNXT:LD	C,18 
+e4e6 c3 c3 e4			JP	ENTRY1 
+e4e9			; 
+e4e9			;   Search for file at (FCB). 
+e4e9			; 
+e4e9 11 cd eb		SRCHFCB:LD	DE,FCB 
+e4ec c3 df e4			JP	SRCHFST 
+e4ef			; 
+e4ef			;   Routine to delete a file pointed to by (DE). 
+e4ef			; 
+e4ef 0e 13		DELETE:	LD	C,19 
+e4f1 c3 05 00			JP	ENTRY 
+e4f4			; 
+e4f4			;   Routine to call the bdos and set the zero flag if a zero 
+e4f4			; status is returned. 
+e4f4			; 
+e4f4 cd 05 00		ENTRY2:	CALL	ENTRY 
+e4f7 b7				OR	A		;set zero flag if appropriate. 
+e4f8 c9				RET	 
+e4f9			; 
+e4f9			;   Routine to read the next record from a sequential file. 
+e4f9			; (DE) points to the FCB. 
+e4f9			; 
+e4f9 0e 14		RDREC:	LD	C,20 
+e4fb c3 f4 e4			JP	ENTRY2 
+e4fe			; 
+e4fe			;   Routine to read file at (FCB). 
+e4fe			; 
+e4fe 11 cd eb		READFCB:LD	DE,FCB 
+e501 c3 f9 e4			JP	RDREC 
+e504			; 
+e504			;   Routine to write the next record of a sequential file. 
+e504			; (DE) points to the FCB. 
+e504			; 
+e504 0e 15		WRTREC:	LD	C,21 
+e506 c3 f4 e4			JP	ENTRY2 
+e509			; 
+e509			;   Routine to create the file pointed to by (DE). 
+e509			; 
+e509 0e 16		CREATE:	LD	C,22 
+e50b c3 c3 e4			JP	ENTRY1 
+e50e			; 
+e50e			;   Routine to rename the file pointed to by (DE). Note that 
+e50e			; the new name starts at (DE+16). 
+e50e			; 
+e50e 0e 17		RENAM:	LD	C,23 
+e510 c3 05 00			JP	ENTRY 
+e513			; 
+e513			;   Get the current user code. 
+e513			; 
+e513 1e ff		GETUSR:	LD	E,0FFH 
+e515			; 
+e515			;   Routne to get or set the current user code. 
+e515			; If (E) is FF then this is a GET, else it is a SET. 
+e515			; 
+e515 0e 20		GETSETUC: LD	C,32 
+e517 c3 05 00			JP	ENTRY 
+e51a			; 
+e51a			;   Routine to set the current drive byte at (TDRIVE). 
+e51a			; 
+e51a cd 13 e5		SETCDRV:CALL	GETUSR		;get user number 
+e51d 87				ADD	A,A		;and shift into the upper 4 bits. 
+e51e 87				ADD	A,A 
+e51f 87				ADD	A,A 
+e520 87				ADD	A,A 
+e521 21 ef eb			LD	HL,CDRIVE	;now add in the current drive number. 
+e524 b6				OR	(HL) 
+e525 32 04 00			LD	(TDRIVE),A	;and save. 
+e528 c9				RET	 
+e529			; 
+e529			;   Move currently active drive down to (TDRIVE). 
+e529			; 
+e529 3a ef eb		MOVECD:	LD	A,(CDRIVE) 
+e52c 32 04 00			LD	(TDRIVE),A 
+e52f c9				RET	 
+e530			; 
+e530			;   Routine to convert (A) into upper case ascii. Only letters 
+e530			; are affected. 
+e530			; 
+e530 fe 61		UPPER:	CP	'a'		;check for letters in the range of 'a' to 'z'. 
+e532 d8				RET	C 
+e533 fe 7b			CP	'{' 
+e535 d0				RET	NC 
+e536 e6 5f			AND	5FH		;convert it if found. 
+e538 c9				RET	 
+e539			; 
+e539			;   Routine to get a line of input. We must check to see if the 
+e539			; user is in (BATCH) mode. If so, then read the input from file 
+e539			; ($$$.SUB). At the end, reset to console input. 
+e539			; 
+e539 3a ab eb		GETINP:	LD	A,(BATCH)	;if =0, then use console input. 
+e53c b7				OR	A 
+e53d ca 96 e5			JP	Z,GETINP1 
+e540			; 
+e540			;   Use the submit file ($$$.sub) which is prepared by a 
+e540			; SUBMIT run. It must be on drive (A) and it will be deleted 
+e540			; if and error occures (like eof). 
+e540			; 
+e540 3a ef eb			LD	A,(CDRIVE)	;select drive 0 if need be. 
+e543 b7				OR	A 
+e544 3e 00			LD	A,0		;always use drive A for submit. 
+e546 c4 bd e4			CALL	NZ,DSKSEL	;select it if required. 
+e549 11 ac eb			LD	DE,BATCHFCB 
+e54c cd cb e4			CALL	OPEN		;look for it. 
+e54f ca 96 e5			JP	Z,GETINP1	;if not there, use normal input. 
+e552 3a bb eb			LD	A,(BATCHFCB+15)	;get last record number+1. 
+e555 3d				DEC	A 
+e556 32 cc eb			LD	(BATCHFCB+32),A 
+e559 11 ac eb			LD	DE,BATCHFCB 
+e55c cd f9 e4			CALL	RDREC		;read last record. 
+e55f c2 96 e5			JP	NZ,GETINP1	;quit on end of file. 
+e562			; 
+e562			;   Move this record into input buffer. 
+e562			; 
+e562 11 07 e4			LD	DE,INBUFF+1 
+e565 21 80 00			LD	HL,TBUFF	;data was read into buffer here. 
+e568 06 80			LD	B,128		;all 128 characters may be used. 
+e56a cd 42 e8			CALL	HL2DE		;(HL) to (DE), (B) bytes. 
+e56d 21 ba eb			LD	HL,BATCHFCB+14 
+e570 36 00			LD	(HL),0		;zero out the 's2' byte. 
+e572 23				INC	HL		;and decrement the record count. 
+e573 35				DEC	(HL) 
+e574 11 ac eb			LD	DE,BATCHFCB	;close the batch file now. 
+e577 cd da e4			CALL	CLOSE 
+e57a ca 96 e5			JP	Z,GETINP1	;quit on an error. 
+e57d 3a ef eb			LD	A,(CDRIVE)	;re-select previous drive if need be. 
+e580 b7				OR	A 
+e581 c4 bd e4			CALL	NZ,DSKSEL	;don't do needless selects. 
+e584			; 
+e584			;   Print line just read on console. 
+e584			; 
+e584 21 08 e4			LD	HL,INBUFF+2 
+e587 cd ac e4			CALL	PLINE2 
+e58a cd c2 e5			CALL	CHKCON		;check console, quit on a key. 
+e58d ca a7 e5			JP	Z,GETINP2	;jump if no key is pressed. 
+e590			; 
+e590			;   Terminate the submit job on any keyboard input. Delete this 
+e590			; file such that it is not re-started and jump to normal keyboard 
+e590			; input section. 
+e590			; 
+e590 cd dd e5			CALL	DELBATCH	;delete the batch file. 
+e593 c3 82 e7			JP	CMMND1		;and restart command input. 
+e596			; 
+e596			;   Get here for normal keyboard input. Delete the submit file 
+e596			; incase there was one. 
+e596			; 
+e596 cd dd e5		GETINP1:CALL	DELBATCH	;delete file ($$$.sub). 
+e599 cd 1a e5			CALL	SETCDRV		;reset active disk. 
+e59c 0e 0a			LD	C,10		;get line from console device. 
+e59e 11 06 e4			LD	DE,INBUFF 
+e5a1 cd 05 00			CALL	ENTRY 
+e5a4 cd 29 e5			CALL	MOVECD		;reset current drive (again). 
+e5a7			; 
+e5a7			;   Convert input line to upper case. 
+e5a7			; 
+e5a7 21 07 e4		GETINP2:LD	HL,INBUFF+1 
+e5aa 46				LD	B,(HL)		;(B)=character counter. 
+e5ab 23			GETINP3:INC	HL 
+e5ac 78				LD	A,B		;end of the line? 
+e5ad b7				OR	A 
+e5ae ca ba e5			JP	Z,GETINP4 
+e5b1 7e				LD	A,(HL)		;convert to upper case. 
+e5b2 cd 30 e5			CALL	UPPER 
+e5b5 77				LD	(HL),A 
+e5b6 05				DEC	B		;adjust character count. 
+e5b7 c3 ab e5			JP	GETINP3 
+e5ba 77			GETINP4:LD	(HL),A		;add trailing null. 
+e5bb 21 08 e4			LD	HL,INBUFF+2 
+e5be 22 88 e4			LD	(INPOINT),HL	;reset input line pointer. 
+e5c1 c9				RET	 
+e5c2			; 
+e5c2			;   Routine to check the console for a key pressed. The zero 
+e5c2			; flag is set is none, else the character is returned in (A). 
+e5c2			; 
+e5c2 0e 0b		CHKCON:	LD	C,11		;check console. 
+e5c4 cd 05 00			CALL	ENTRY 
+e5c7 b7				OR	A 
+e5c8 c8				RET	Z		;return if nothing. 
+e5c9 0e 01			LD	C,1		;else get character. 
+e5cb cd 05 00			CALL	ENTRY 
+e5ce b7				OR	A		;clear zero flag and return. 
+e5cf c9				RET	 
+e5d0			; 
+e5d0			;   Routine to get the currently active drive number. 
+e5d0			; 
+e5d0 0e 19		GETDSK:	LD	C,25 
+e5d2 c3 05 00			JP	ENTRY 
+e5d5			; 
+e5d5			;   Set the stabdard dma address. 
+e5d5			; 
+e5d5 11 80 00		STDDMA:	LD	DE,TBUFF 
+e5d8			; 
+e5d8			;   Routine to set the dma address to (DE). 
+e5d8			; 
+e5d8 0e 1a		DMASET:	LD	C,26 
+e5da c3 05 00			JP	ENTRY 
+e5dd			; 
+e5dd			;  Delete the batch file created by SUBMIT. 
+e5dd			; 
+e5dd 21 ab eb		DELBATCH: LD	HL,BATCH	;is batch active? 
+e5e0 7e				LD	A,(HL) 
+e5e1 b7				OR	A 
+e5e2 c8				RET	Z 
+e5e3 36 00			LD	(HL),0		;yes, de-activate it. 
+e5e5 af				XOR	A 
+e5e6 cd bd e4			CALL	DSKSEL		;select drive 0 for sure. 
+e5e9 11 ac eb			LD	DE,BATCHFCB	;and delete this file. 
+e5ec cd ef e4			CALL	DELETE 
+e5ef 3a ef eb			LD	A,(CDRIVE)	;reset current drive. 
+e5f2 c3 bd e4			JP	DSKSEL 
+e5f5			; 
+e5f5			;   Check to two strings at (PATTRN1) and (PATTRN2). They must be 
+e5f5			; the same or we halt.... 
+e5f5			; 
+e5f5 11 28 e7		VERIFY:	LD	DE,PATTRN1	;these are the serial number bytes. 
+e5f8 21 00 ec			LD	HL,PATTRN2	;ditto, but how could they be different? 
+e5fb 06 06			LD	B,6		;6 bytes each. 
+e5fd 1a			VERIFY1:LD	A,(DE) 
+e5fe be				CP	(HL) 
+e5ff c2 cf e7			JP	NZ,HALT		;jump to halt routine. 
+e602 13				INC	DE 
+e603 23				INC	HL 
+e604 05				DEC	B 
+e605 c2 fd e5			JP	NZ,VERIFY1 
+e608 c9				RET	 
+e609			; 
+e609			;   Print back file name with a '?' to indicate a syntax error. 
+e609			; 
+e609 cd 98 e4		SYNERR:	CALL	CRLF		;end current line. 
+e60c 2a 8a e4			LD	HL,(NAMEPNT)	;this points to name in error. 
+e60f 7e			SYNERR1:LD	A,(HL)		;print it until a space or null is found. 
+e610 fe 20			CP	' ' 
+e612 ca 22 e6			JP	Z,SYNERR2 
+e615 b7				OR	A 
+e616 ca 22 e6			JP	Z,SYNERR2 
+e619 e5				PUSH	HL 
+e61a cd 8c e4			CALL	PRINT 
+e61d e1				POP	HL 
+e61e 23				INC	HL 
+e61f c3 0f e6			JP	SYNERR1 
+e622 3e 3f		SYNERR2:LD	A,'?'		;add trailing '?'. 
+e624 cd 8c e4			CALL	PRINT 
+e627 cd 98 e4			CALL	CRLF 
+e62a cd dd e5			CALL	DELBATCH	;delete any batch file. 
+e62d c3 82 e7			JP	CMMND1		;and restart from console input. 
+e630			; 
+e630			;   Check character at (DE) for legal command input. Note that the 
+e630			; zero flag is set if the character is a delimiter. 
+e630			; 
+e630 1a			CHECK:	LD	A,(DE) 
+e631 b7				OR	A 
+e632 c8				RET	Z 
+e633 fe 20			CP	' '		;control characters are not legal here. 
+e635 da 09 e6			JP	C,SYNERR 
+e638 c8				RET	Z		;check for valid delimiter. 
+e639 fe 3d			CP	'=' 
+e63b c8				RET	Z 
+e63c fe 5f			CP	'_' 
+e63e c8				RET	Z 
+e63f fe 2e			CP	'.' 
+e641 c8				RET	Z 
+e642 fe 3a			CP	':' 
+e644 c8				RET	Z 
+e645 fe 3b			CP	';' 
+e647 c8				RET	Z 
+e648 fe 3c			CP	'<' 
+e64a c8				RET	Z 
+e64b fe 3e			CP	'>' 
+e64d c8				RET	Z 
+e64e c9				RET	 
+e64f			; 
+e64f			;   Get the next non-blank character from (DE). 
+e64f			; 
+e64f 1a			NONBLANK: LD	A,(DE) 
+e650 b7				OR	A		;string ends with a null. 
+e651 c8				RET	Z 
+e652 fe 20			CP	' ' 
+e654 c0				RET	NZ 
+e655 13				INC	DE 
+e656 c3 4f e6			JP	NONBLANK 
+e659			; 
+e659			;   Add (HL)=(HL)+(A) 
+e659			; 
+e659 85			ADDHL:	ADD	A,L 
+e65a 6f				LD	L,A 
+e65b d0				RET	NC		;take care of any carry. 
+e65c 24				INC	H 
+e65d c9				RET	 
+e65e			; 
+e65e			;   Convert the first name in (FCB). 
+e65e			; 
+e65e 3e 00		CONVFST:LD	A,0 
+e660			; 
+e660			;   Format a file name (convert * to '?', etc.). On return, 
+e660			; (A)=0 is an unambigeous name was specified. Enter with (A) equal to 
+e660			; the position within the fcb for the name (either 0 or 16). 
+e660			; 
+e660 21 cd eb		CONVERT:LD	HL,FCB 
+e663 cd 59 e6			CALL	ADDHL 
+e666 e5				PUSH	HL 
+e667 e5				PUSH	HL 
+e668 af				XOR	A 
+e669 32 f0 eb			LD	(CHGDRV),A	;initialize drive change flag. 
+e66c 2a 88 e4			LD	HL,(INPOINT)	;set (HL) as pointer into input line. 
+e66f eb				EX	DE,HL 
+e670 cd 4f e6			CALL	NONBLANK	;get next non-blank character. 
+e673 eb				EX	DE,HL 
+e674 22 8a e4			LD	(NAMEPNT),HL	;save pointer here for any error message. 
+e677 eb				EX	DE,HL 
+e678 e1				POP	HL 
+e679 1a				LD	A,(DE)		;get first character. 
+e67a b7				OR	A 
+e67b ca 89 e6			JP	Z,CONVRT1 
+e67e de 40			SBC	A,'A'-1		;might be a drive name, convert to binary. 
+e680 47				LD	B,A		;and save. 
+e681 13				INC	DE		;check next character for a ':'. 
+e682 1a				LD	A,(DE) 
+e683 fe 3a			CP	':' 
+e685 ca 90 e6			JP	Z,CONVRT2 
+e688 1b				DEC	DE		;nope, move pointer back to the start of the line. 
+e689 3a ef eb		CONVRT1:LD	A,(CDRIVE) 
+e68c 77				LD	(HL),A 
+e68d c3 96 e6			JP	CONVRT3 
+e690 78			CONVRT2:LD	A,B 
+e691 32 f0 eb			LD	(CHGDRV),A	;set change in drives flag. 
+e694 70				LD	(HL),B 
+e695 13				INC	DE 
+e696			; 
+e696			;   Convert the basic file name. 
+e696			; 
+e696 06 08		CONVRT3:LD	B,08H 
+e698 cd 30 e6		CONVRT4:CALL	CHECK 
+e69b ca b9 e6			JP	Z,CONVRT8 
+e69e 23				INC	HL 
+e69f fe 2a			CP	'*'		;note that an '*' will fill the remaining 
+e6a1 c2 a9 e6			JP	NZ,CONVRT5	;field with '?'. 
+e6a4 36 3f			LD	(HL),'?' 
+e6a6 c3 ab e6			JP	CONVRT6 
+e6a9 77			CONVRT5:LD	(HL),A 
+e6aa 13				INC	DE 
+e6ab 05			CONVRT6:DEC	B 
+e6ac c2 98 e6			JP	NZ,CONVRT4 
+e6af cd 30 e6		CONVRT7:CALL	CHECK		;get next delimiter. 
+e6b2 ca c0 e6			JP	Z,GETEXT 
+e6b5 13				INC	DE 
+e6b6 c3 af e6			JP	CONVRT7 
+e6b9 23			CONVRT8:INC	HL		;blank fill the file name. 
+e6ba 36 20			LD	(HL),' ' 
+e6bc 05				DEC	B 
+e6bd c2 b9 e6			JP	NZ,CONVRT8 
+e6c0			; 
+e6c0			;   Get the extension and convert it. 
+e6c0			; 
+e6c0 06 03		GETEXT:	LD	B,03H 
+e6c2 fe 2e			CP	'.' 
+e6c4 c2 e9 e6			JP	NZ,GETEXT5 
+e6c7 13				INC	DE 
+e6c8 cd 30 e6		GETEXT1:CALL	CHECK 
+e6cb ca e9 e6			JP	Z,GETEXT5 
+e6ce 23				INC	HL 
+e6cf fe 2a			CP	'*' 
+e6d1 c2 d9 e6			JP	NZ,GETEXT2 
+e6d4 36 3f			LD	(HL),'?' 
+e6d6 c3 db e6			JP	GETEXT3 
+e6d9 77			GETEXT2:LD	(HL),A 
+e6da 13				INC	DE 
+e6db 05			GETEXT3:DEC	B 
+e6dc c2 c8 e6			JP	NZ,GETEXT1 
+e6df cd 30 e6		GETEXT4:CALL	CHECK 
+e6e2 ca f0 e6			JP	Z,GETEXT6 
+e6e5 13				INC	DE 
+e6e6 c3 df e6			JP	GETEXT4 
+e6e9 23			GETEXT5:INC	HL 
+e6ea 36 20			LD	(HL),' ' 
+e6ec 05				DEC	B 
+e6ed c2 e9 e6			JP	NZ,GETEXT5 
+e6f0 06 03		GETEXT6:LD	B,3 
+e6f2 23			GETEXT7:INC	HL 
+e6f3 36 00			LD	(HL),0 
+e6f5 05				DEC	B 
+e6f6 c2 f2 e6			JP	NZ,GETEXT7 
+e6f9 eb				EX	DE,HL 
+e6fa 22 88 e4			LD	(INPOINT),HL	;save input line pointer. 
+e6fd e1				POP	HL 
+e6fe			; 
+e6fe			;   Check to see if this is an ambigeous file name specification. 
+e6fe			; Set the (A) register to non zero if it is. 
+e6fe			; 
+e6fe 01 0b 00			LD	BC,11		;set name length. 
+e701 23			GETEXT8:INC	HL 
+e702 7e				LD	A,(HL) 
+e703 fe 3f			CP	'?'		;any question marks? 
+e705 c2 09 e7			JP	NZ,GETEXT9 
+e708 04				INC	B		;count them. 
+e709 0d			GETEXT9:DEC	C 
+e70a c2 01 e7			JP	NZ,GETEXT8 
+e70d 78				LD	A,B 
+e70e b7				OR	A 
+e70f c9				RET	 
+e710			; 
+e710			;   CP/M command table. Note commands can be either 3 or 4 characters long. 
+e710			; 
+e710			NUMCMDS: EQU	6		;number of commands 
+e710 ..			CMDTBL:	DEFB	'DIR ' 
+e714 ..				DEFB	'ERA ' 
+e718 ..				DEFB	'TYPE' 
+e71c ..				DEFB	'SAVE' 
+e720 ..				DEFB	'REN ' 
+e724 ..				DEFB	'USER' 
+e728			; 
+e728			;   The following six bytes must agree with those at (PATTRN2) 
+e728			; or cp/m will HALT. Why? 
+e728			; 
+e728 00 16 00 00 00 00	PATTRN1:DEFB	0,22,0,0,0,0	;(* serial number bytes *). 
+e72e			; 
+e72e			;   Search the command table for a match with what has just 
+e72e			; been entered. If a match is found, then we jump to the 
+e72e			; proper section. Else jump to (UNKNOWN). 
+e72e			; On return, the (C) register is set to the command number 
+e72e			; that matched (or NUMCMDS+1 if no match). 
+e72e			; 
+e72e 21 10 e7		SEARCH:	LD	HL,CMDTBL 
+e731 0e 00			LD	C,0 
+e733 79			SEARCH1:LD	A,C 
+e734 fe 06			CP	NUMCMDS		;this commands exists. 
+e736 d0				RET	NC 
+e737 11 ce eb			LD	DE,FCB+1	;check this one. 
+e73a 06 04			LD	B,4		;max command length. 
+e73c 1a			SEARCH2:LD	A,(DE) 
+e73d be				CP	(HL) 
+e73e c2 4f e7			JP	NZ,SEARCH3	;not a match. 
+e741 13				INC	DE 
+e742 23				INC	HL 
+e743 05				DEC	B 
+e744 c2 3c e7			JP	NZ,SEARCH2 
+e747 1a				LD	A,(DE)		;allow a 3 character command to match. 
+e748 fe 20			CP	' ' 
+e74a c2 54 e7			JP	NZ,SEARCH4 
+e74d 79				LD	A,C		;set return register for this command. 
+e74e c9				RET	 
+e74f 23			SEARCH3:INC	HL 
+e750 05				DEC	B 
+e751 c2 4f e7			JP	NZ,SEARCH3 
+e754 0c			SEARCH4:INC	C 
+e755 c3 33 e7			JP	SEARCH1 
+e758			; 
+e758			;   Set the input buffer to empty and then start the command 
+e758			; processor (ccp). 
+e758			; 
+e758 af			CLEARBUF: XOR	A 
+e759 32 07 e4			LD	(INBUFF+1),A	;second byte is actual length. 
+e75c			; 
+e75c			;************************************************************** 
+e75c			;* 
+e75c			;* 
+e75c			;* C C P  -   C o n s o l e   C o m m a n d   P r o c e s s o r 
+e75c			;* 
+e75c			;************************************************************** 
+e75c			;* 
+e75c 31 ab eb		COMMAND:LD	SP,CCPSTACK	;setup stack area. 
+e75f c5				PUSH	BC		;note that (C) should be equal to: 
+e760 79				LD	A,C		;(uuuudddd) where 'uuuu' is the user number 
+e761 1f				RRA			;and 'dddd' is the drive number. 
+e762 1f				RRA	 
+e763 1f				RRA	 
+e764 1f				RRA	 
+e765 e6 0f			AND	0FH		;isolate the user number. 
+e767 5f				LD	E,A 
+e768 cd 15 e5			CALL	GETSETUC	;and set it. 
+e76b cd b8 e4			CALL	RESDSK		;reset the disk system. 
+e76e 32 ab eb			LD	(BATCH),A	;clear batch mode flag. 
+e771 c1				POP	BC 
+e772 79				LD	A,C 
+e773 e6 0f			AND	0FH		;isolate the drive number. 
+e775 32 ef eb			LD	(CDRIVE),A	;and save. 
+e778 cd bd e4			CALL	DSKSEL		;...and select. 
+e77b 3a 07 e4			LD	A,(INBUFF+1) 
+e77e b7				OR	A		;anything in input buffer already? 
+e77f c2 98 e7			JP	NZ,CMMND2	;yes, we just process it. 
+e782			; 
+e782			;   Entry point to get a command line from the console. 
+e782			; 
+e782 31 ab eb		CMMND1:	LD	SP,CCPSTACK	;set stack straight. 
+e785 cd 98 e4			CALL	CRLF		;start a new line on the screen. 
+e788 cd d0 e5			CALL	GETDSK		;get current drive. 
+e78b c6 41			ADD	A,'A' 
+e78d cd 8c e4			CALL	PRINT		;print current drive. 
+e790 3e 3e			LD	A,'>' 
+e792 cd 8c e4			CALL	PRINT		;and add prompt. 
+e795 cd 39 e5			CALL	GETINP		;get line from user. 
+e798			; 
+e798			;   Process command line here. 
+e798			; 
+e798 11 80 00		CMMND2:	LD	DE,TBUFF 
+e79b cd d8 e5			CALL	DMASET		;set standard dma address. 
+e79e cd d0 e5			CALL	GETDSK 
+e7a1 32 ef eb			LD	(CDRIVE),A	;set current drive. 
+e7a4 cd 5e e6			CALL	CONVFST		;convert name typed in. 
+e7a7 c4 09 e6			CALL	NZ,SYNERR	;wild cards are not allowed. 
+e7aa 3a f0 eb			LD	A,(CHGDRV)	;if a change in drives was indicated, 
+e7ad b7				OR	A		;then treat this as an unknown command 
+e7ae c2 a5 ea			JP	NZ,UNKNOWN	;which gets executed. 
+e7b1 cd 2e e7			CALL	SEARCH		;else search command table for a match. 
+e7b4			; 
+e7b4			;   Note that an unknown command returns 
+e7b4			; with (A) pointing to the last address 
+e7b4			; in our table which is (UNKNOWN). 
+e7b4			; 
+e7b4 21 c1 e7			LD	HL,CMDADR	;now, look thru our address table for command (A). 
+e7b7 5f				LD	E,A		;set (DE) to command number. 
+e7b8 16 00			LD	D,0 
+e7ba 19				ADD	HL,DE 
+e7bb 19				ADD	HL,DE		;(HL)=(CMDADR)+2*(command number). 
+e7bc 7e				LD	A,(HL)		;now pick out this address. 
+e7bd 23				INC	HL 
+e7be 66				LD	H,(HL) 
+e7bf 6f				LD	L,A 
+e7c0 e9				JP	(HL)		;now execute it. 
+e7c1			; 
+e7c1			;   CP/M command address table. 
+e7c1			; 
+e7c1 77 e8 1f e9 5d e9 ad e9	CMDADR:	DEFW	DIRECT,ERASE,TYPE,SAVE 
+e7c9 10 ea 8e ea a5 ea		DEFW	RENAME,USER,UNKNOWN 
+e7cf			; 
+e7cf			;   Halt the system. Reason for this is unknown at present. 
+e7cf			; 
+e7cf 21 f3 76		HALT:	LD	HL,76F3H	;'DI HLT' instructions. 
+e7d2 22 00 e4			LD	(CBASE),HL 
+e7d5 21 00 e4			LD	HL,CBASE 
+e7d8 e9				JP	(HL) 
+e7d9			; 
+e7d9			;   Read error while TYPEing a file. 
+e7d9			; 
+e7d9 01 df e7		RDERROR:LD	BC,RDERR 
+e7dc c3 a7 e4			JP	PLINE 
+e7df .. 00		RDERR:	DEFB	'Read error',0 
+e7ea			; 
+e7ea			;   Required file was not located. 
+e7ea			; 
+e7ea 01 f0 e7		NONE:	LD	BC,NOFILE 
+e7ed c3 a7 e4			JP	PLINE 
+e7f0 .. 00		NOFILE:	DEFB	'No file',0 
+e7f8			; 
+e7f8			;   Decode a command of the form 'A>filename number{ filename}. 
+e7f8			; Note that a drive specifier is not allowed on the first file 
+e7f8			; name. On return, the number is in register (A). Any error 
+e7f8			; causes 'filename?' to be printed and the command is aborted. 
+e7f8			; 
+e7f8 cd 5e e6		DECODE:	CALL	CONVFST		;convert filename. 
+e7fb 3a f0 eb			LD	A,(CHGDRV)	;do not allow a drive to be specified. 
+e7fe b7				OR	A 
+e7ff c2 09 e6			JP	NZ,SYNERR 
+e802 21 ce eb			LD	HL,FCB+1	;convert number now. 
+e805 01 0b 00			LD	BC,11		;(B)=sum register, (C)=max digit count. 
+e808 7e			DECODE1:LD	A,(HL) 
+e809 fe 20			CP	' '		;a space terminates the numeral. 
+e80b ca 33 e8			JP	Z,DECODE3 
+e80e 23				INC	HL 
+e80f d6 30			SUB	'0'		;make binary from ascii. 
+e811 fe 0a			CP	10		;legal digit? 
+e813 d2 09 e6			JP	NC,SYNERR 
+e816 57				LD	D,A		;yes, save it in (D). 
+e817 78				LD	A,B		;compute (B)=(B)*10 and check for overflow. 
+e818 e6 e0			AND	0E0H 
+e81a c2 09 e6			JP	NZ,SYNERR 
+e81d 78				LD	A,B 
+e81e 07				RLCA	 
+e81f 07				RLCA	 
+e820 07				RLCA			;(A)=(B)*8 
+e821 80				ADD	A,B		;.......*9 
+e822 da 09 e6			JP	C,SYNERR 
+e825 80				ADD	A,B		;.......*10 
+e826 da 09 e6			JP	C,SYNERR 
+e829 82				ADD	A,D		;add in new digit now. 
+e82a da 09 e6		DECODE2:JP	C,SYNERR 
+e82d 47				LD	B,A		;and save result. 
+e82e 0d				DEC	C		;only look at 11 digits. 
+e82f c2 08 e8			JP	NZ,DECODE1 
+e832 c9				RET	 
+e833 7e			DECODE3:LD	A,(HL)		;spaces must follow (why?). 
+e834 fe 20			CP	' ' 
+e836 c2 09 e6			JP	NZ,SYNERR 
+e839 23				INC	HL 
+e83a 0d			DECODE4:DEC	C 
+e83b c2 33 e8			JP	NZ,DECODE3 
+e83e 78				LD	A,B		;set (A)=the numeric value entered. 
+e83f c9				RET	 
+e840			; 
+e840			;   Move 3 bytes from (HL) to (DE). Note that there is only 
+e840			; one reference to this at (A2D5h). 
+e840			; 
+e840 06 03		MOVE3:	LD	B,3 
+e842			; 
+e842			;   Move (B) bytes from (HL) to (DE). 
+e842			; 
+e842 7e			HL2DE:	LD	A,(HL) 
+e843 12				LD	(DE),A 
+e844 23				INC	HL 
+e845 13				INC	DE 
+e846 05				DEC	B 
+e847 c2 42 e8			JP	NZ,HL2DE 
+e84a c9				RET	 
+e84b			; 
+e84b			;   Compute (HL)=(TBUFF)+(A)+(C) and get the byte that's here. 
+e84b			; 
+e84b 21 80 00		EXTRACT:LD	HL,TBUFF 
+e84e 81				ADD	A,C 
+e84f cd 59 e6			CALL	ADDHL 
+e852 7e				LD	A,(HL) 
+e853 c9				RET	 
+e854			; 
+e854			;  Check drive specified. If it means a change, then the new 
+e854			; drive will be selected. In any case, the drive byte of the 
+e854			; fcb will be set to null (means use current drive). 
+e854			; 
+e854 af			DSELECT:XOR	A		;null out first byte of fcb. 
+e855 32 cd eb			LD	(FCB),A 
+e858 3a f0 eb			LD	A,(CHGDRV)	;a drive change indicated? 
+e85b b7				OR	A 
+e85c c8				RET	Z 
+e85d 3d				DEC	A		;yes, is it the same as the current drive? 
+e85e 21 ef eb			LD	HL,CDRIVE 
+e861 be				CP	(HL) 
+e862 c8				RET	Z 
+e863 c3 bd e4			JP	DSKSEL		;no. Select it then. 
+e866			; 
+e866			;   Check the drive selection and reset it to the previous 
+e866			; drive if it was changed for the preceeding command. 
+e866			; 
+e866 3a f0 eb		RESETDR:LD	A,(CHGDRV)	;drive change indicated? 
+e869 b7				OR	A 
+e86a c8				RET	Z 
+e86b 3d				DEC	A		;yes, was it a different drive? 
+e86c 21 ef eb			LD	HL,CDRIVE 
+e86f be				CP	(HL) 
+e870 c8				RET	Z 
+e871 3a ef eb			LD	A,(CDRIVE)	;yes, re-select our old drive. 
+e874 c3 bd e4			JP	DSKSEL 
+e877			; 
+e877			;************************************************************** 
+e877			;* 
+e877			;*           D I R E C T O R Y   C O M M A N D 
+e877			;* 
+e877			;************************************************************** 
+e877			; 
+e877 cd 5e e6		DIRECT:	CALL	CONVFST		;convert file name. 
+e87a cd 54 e8			CALL	DSELECT		;select indicated drive. 
+e87d 21 ce eb			LD	HL,FCB+1	;was any file indicated? 
+e880 7e				LD	A,(HL) 
+e881 fe 20			CP	' ' 
+e883 c2 8f e8			JP	NZ,DIRECT2 
+e886 06 0b			LD	B,11		;no. Fill field with '?' - same as *.*. 
+e888 36 3f		DIRECT1:LD	(HL),'?' 
+e88a 23				INC	HL 
+e88b 05				DEC	B 
+e88c c2 88 e8			JP	NZ,DIRECT1 
+e88f 1e 00		DIRECT2:LD	E,0		;set initial cursor position. 
+e891 d5				PUSH	DE 
+e892 cd e9 e4			CALL	SRCHFCB		;get first file name. 
+e895 cc ea e7			CALL	Z,NONE		;none found at all? 
+e898 ca 1b e9		DIRECT3:JP	Z,DIRECT9	;terminate if no more names. 
+e89b 3a ee eb			LD	A,(RTNCODE)	;get file's position in segment (0-3). 
+e89e 0f				RRCA	 
+e89f 0f				RRCA	 
+e8a0 0f				RRCA	 
+e8a1 e6 60			AND	60H		;(A)=position*32 
+e8a3 4f				LD	C,A 
+e8a4 3e 0a			LD	A,10 
+e8a6 cd 4b e8			CALL	EXTRACT		;extract the tenth entry in fcb. 
+e8a9 17				RLA			;check system file status bit. 
+e8aa da 0f e9			JP	C,DIRECT8	;we don't list them. 
+e8ad d1				POP	DE 
+e8ae 7b				LD	A,E		;bump name count. 
+e8af 1c				INC	E 
+e8b0 d5				PUSH	DE 
+e8b1 e6 03			AND	03H		;at end of line? 
+e8b3 f5				PUSH	AF 
+e8b4 c2 cc e8			JP	NZ,DIRECT4 
+e8b7 cd 98 e4			CALL	CRLF		;yes, end this line and start another. 
+e8ba c5				PUSH	BC 
+e8bb cd d0 e5			CALL	GETDSK		;start line with ('A:'). 
+e8be c1				POP	BC 
+e8bf c6 41			ADD	A,'A' 
+e8c1 cd 92 e4			CALL	PRINTB 
+e8c4 3e 3a			LD	A,':' 
+e8c6 cd 92 e4			CALL	PRINTB 
+e8c9 c3 d4 e8			JP	DIRECT5 
+e8cc cd a2 e4		DIRECT4:CALL	SPACE		;add seperator between file names. 
+e8cf 3e 3a			LD	A,':' 
+e8d1 cd 92 e4			CALL	PRINTB 
+e8d4 cd a2 e4		DIRECT5:CALL	SPACE 
+e8d7 06 01			LD	B,1		;'extract' each file name character at a time. 
+e8d9 78			DIRECT6:LD	A,B 
+e8da cd 4b e8			CALL	EXTRACT 
+e8dd e6 7f			AND	7FH		;strip bit 7 (status bit). 
+e8df fe 20			CP	' '		;are we at the end of the name? 
+e8e1 c2 f9 e8			JP	NZ,DRECT65 
+e8e4 f1				POP	AF		;yes, don't print spaces at the end of a line. 
+e8e5 f5				PUSH	AF 
+e8e6 fe 03			CP	3 
+e8e8 c2 f7 e8			JP	NZ,DRECT63 
+e8eb 3e 09			LD	A,9		;first check for no extension. 
+e8ed cd 4b e8			CALL	EXTRACT 
+e8f0 e6 7f			AND	7FH 
+e8f2 fe 20			CP	' ' 
+e8f4 ca 0e e9			JP	Z,DIRECT7	;don't print spaces. 
+e8f7 3e 20		DRECT63:LD	A,' '		;else print them. 
+e8f9 cd 92 e4		DRECT65:CALL	PRINTB 
+e8fc 04				INC	B		;bump to next character psoition. 
+e8fd 78				LD	A,B 
+e8fe fe 0c			CP	12		;end of the name? 
+e900 d2 0e e9			JP	NC,DIRECT7 
+e903 fe 09			CP	9		;nope, starting extension? 
+e905 c2 d9 e8			JP	NZ,DIRECT6 
+e908 cd a2 e4			CALL	SPACE		;yes, add seperating space. 
+e90b c3 d9 e8			JP	DIRECT6 
+e90e f1			DIRECT7:POP	AF		;get the next file name. 
+e90f cd c2 e5		DIRECT8:CALL	CHKCON		;first check console, quit on anything. 
+e912 c2 1b e9			JP	NZ,DIRECT9 
+e915 cd e4 e4			CALL	SRCHNXT		;get next name. 
+e918 c3 98 e8			JP	DIRECT3		;and continue with our list. 
+e91b d1			DIRECT9:POP	DE		;restore the stack and return to command level. 
+e91c c3 86 eb			JP	GETBACK 
+e91f			; 
+e91f			;************************************************************** 
+e91f			;* 
+e91f			;*                E R A S E   C O M M A N D 
+e91f			;* 
+e91f			;************************************************************** 
+e91f			; 
+e91f cd 5e e6		ERASE:	CALL	CONVFST		;convert file name. 
+e922 fe 0b			CP	11		;was '*.*' entered? 
+e924 c2 42 e9			JP	NZ,ERASE1 
+e927 01 52 e9			LD	BC,YESNO	;yes, ask for confirmation. 
+e92a cd a7 e4			CALL	PLINE 
+e92d cd 39 e5			CALL	GETINP 
+e930 21 07 e4			LD	HL,INBUFF+1 
+e933 35				DEC	(HL)		;must be exactly 'y'. 
+e934 c2 82 e7			JP	NZ,CMMND1 
+e937 23				INC	HL 
+e938 7e				LD	A,(HL) 
+e939 fe 59			CP	'Y' 
+e93b c2 82 e7			JP	NZ,CMMND1 
+e93e 23				INC	HL 
+e93f 22 88 e4			LD	(INPOINT),HL	;save input line pointer. 
+e942 cd 54 e8		ERASE1:	CALL	DSELECT		;select desired disk. 
+e945 11 cd eb			LD	DE,FCB 
+e948 cd ef e4			CALL	DELETE		;delete the file. 
+e94b 3c				INC	A 
+e94c cc ea e7			CALL	Z,NONE		;not there? 
+e94f c3 86 eb			JP	GETBACK		;return to command level now. 
+e952 .. 00		YESNO:	DEFB	'All (y/n)?',0 
+e95d			; 
+e95d			;************************************************************** 
+e95d			;* 
+e95d			;*            T Y P E   C O M M A N D 
+e95d			;* 
+e95d			;************************************************************** 
+e95d			; 
+e95d cd 5e e6		TYPE:	CALL	CONVFST		;convert file name. 
+e960 c2 09 e6			JP	NZ,SYNERR	;wild cards not allowed. 
+e963 cd 54 e8			CALL	DSELECT		;select indicated drive. 
+e966 cd d0 e4			CALL	OPENFCB		;open the file. 
+e969 ca a7 e9			JP	Z,TYPE5		;not there? 
+e96c cd 98 e4			CALL	CRLF		;ok, start a new line on the screen. 
+e96f 21 f1 eb			LD	HL,NBYTES	;initialize byte counter. 
+e972 36 ff			LD	(HL),0FFH	;set to read first sector. 
+e974 21 f1 eb		TYPE1:	LD	HL,NBYTES 
+e977 7e			TYPE2:	LD	A,(HL)		;have we written the entire sector? 
+e978 fe 80			CP	128 
+e97a da 87 e9			JP	C,TYPE3 
+e97d e5				PUSH	HL		;yes, read in the next one. 
+e97e cd fe e4			CALL	READFCB 
+e981 e1				POP	HL 
+e982 c2 a0 e9			JP	NZ,TYPE4	;end or error? 
+e985 af				XOR	A		;ok, clear byte counter. 
+e986 77				LD	(HL),A 
+e987 34			TYPE3:	INC	(HL)		;count this byte. 
+e988 21 80 00			LD	HL,TBUFF	;and get the (A)th one from the buffer (TBUFF). 
+e98b cd 59 e6			CALL	ADDHL 
+e98e 7e				LD	A,(HL) 
+e98f fe 1a			CP	CNTRLZ		;end of file mark? 
+e991 ca 86 eb			JP	Z,GETBACK 
+e994 cd 8c e4			CALL	PRINT		;no, print it. 
+e997 cd c2 e5			CALL	CHKCON		;check console, quit if anything ready. 
+e99a c2 86 eb			JP	NZ,GETBACK 
+e99d c3 74 e9			JP	TYPE1 
+e9a0			; 
+e9a0			;   Get here on an end of file or read error. 
+e9a0			; 
+e9a0 3d			TYPE4:	DEC	A		;read error? 
+e9a1 ca 86 eb			JP	Z,GETBACK 
+e9a4 cd d9 e7			CALL	RDERROR		;yes, print message. 
+e9a7 cd 66 e8		TYPE5:	CALL	RESETDR		;and reset proper drive 
+e9aa c3 09 e6			JP	SYNERR		;now print file name with problem. 
+e9ad			; 
+e9ad			;************************************************************** 
+e9ad			;* 
+e9ad			;*            S A V E   C O M M A N D 
+e9ad			;* 
+e9ad			;************************************************************** 
+e9ad			; 
+e9ad cd f8 e7		SAVE:	CALL	DECODE		;get numeric number that follows SAVE. 
+e9b0 f5				PUSH	AF		;save number of pages to write. 
+e9b1 cd 5e e6			CALL	CONVFST		;convert file name. 
+e9b4 c2 09 e6			JP	NZ,SYNERR	;wild cards not allowed. 
+e9b7 cd 54 e8			CALL	DSELECT		;select specified drive. 
+e9ba 11 cd eb			LD	DE,FCB		;now delete this file. 
+e9bd d5				PUSH	DE 
+e9be cd ef e4			CALL	DELETE 
+e9c1 d1				POP	DE 
+e9c2 cd 09 e5			CALL	CREATE		;and create it again. 
+e9c5 ca fb e9			JP	Z,SAVE3		;can't create? 
+e9c8 af				XOR	A		;clear record number byte. 
+e9c9 32 ed eb			LD	(FCB+32),A 
+e9cc f1				POP	AF		;convert pages to sectors. 
+e9cd 6f				LD	L,A 
+e9ce 26 00			LD	H,0 
+e9d0 29				ADD	HL,HL		;(HL)=number of sectors to write. 
+e9d1 11 00 01			LD	DE,TBASE	;and we start from here. 
+e9d4 7c			SAVE1:	LD	A,H		;done yet? 
+e9d5 b5				OR	L 
+e9d6 ca f1 e9			JP	Z,SAVE2 
+e9d9 2b				DEC	HL		;nope, count this and compute the start 
+e9da e5				PUSH	HL		;of the next 128 byte sector. 
+e9db 21 80 00			LD	HL,128 
+e9de 19				ADD	HL,DE 
+e9df e5				PUSH	HL		;save it and set the transfer address. 
+e9e0 cd d8 e5			CALL	DMASET 
+e9e3 11 cd eb			LD	DE,FCB		;write out this sector now. 
+e9e6 cd 04 e5			CALL	WRTREC 
+e9e9 d1				POP	DE		;reset (DE) to the start of the last sector. 
+e9ea e1				POP	HL		;restore sector count. 
+e9eb c2 fb e9			JP	NZ,SAVE3	;write error? 
+e9ee c3 d4 e9			JP	SAVE1 
+e9f1			; 
+e9f1			;   Get here after writing all of the file. 
+e9f1			; 
+e9f1 11 cd eb		SAVE2:	LD	DE,FCB		;now close the file. 
+e9f4 cd da e4			CALL	CLOSE 
+e9f7 3c				INC	A		;did it close ok? 
+e9f8 c2 01 ea			JP	NZ,SAVE4 
+e9fb			; 
+e9fb			;   Print out error message (no space). 
+e9fb			; 
+e9fb 01 07 ea		SAVE3:	LD	BC,NOSPACE 
+e9fe cd a7 e4			CALL	PLINE 
+ea01 cd d5 e5		SAVE4:	CALL	STDDMA		;reset the standard dma address. 
+ea04 c3 86 eb			JP	GETBACK 
+ea07 .. 00		NOSPACE:DEFB	'No space',0 
+ea10			; 
+ea10			;************************************************************** 
+ea10			;* 
+ea10			;*           R E N A M E   C O M M A N D 
+ea10			;* 
+ea10			;************************************************************** 
+ea10			; 
+ea10 cd 5e e6		RENAME:	CALL	CONVFST		;convert first file name. 
+ea13 c2 09 e6			JP	NZ,SYNERR	;wild cards not allowed. 
+ea16 3a f0 eb			LD	A,(CHGDRV)	;remember any change in drives specified. 
+ea19 f5				PUSH	AF 
+ea1a cd 54 e8			CALL	DSELECT		;and select this drive. 
+ea1d cd e9 e4			CALL	SRCHFCB		;is this file present? 
+ea20 c2 79 ea			JP	NZ,RENAME6	;yes, print error message. 
+ea23 21 cd eb			LD	HL,FCB		;yes, move this name into second slot. 
+ea26 11 dd eb			LD	DE,FCB+16 
+ea29 06 10			LD	B,16 
+ea2b cd 42 e8			CALL	HL2DE 
+ea2e 2a 88 e4			LD	HL,(INPOINT)	;get input pointer. 
+ea31 eb				EX	DE,HL 
+ea32 cd 4f e6			CALL	NONBLANK	;get next non blank character. 
+ea35 fe 3d			CP	'='		;only allow an '=' or '_' seperator. 
+ea37 ca 3f ea			JP	Z,RENAME1 
+ea3a fe 5f			CP	'_' 
+ea3c c2 73 ea			JP	NZ,RENAME5 
+ea3f eb			RENAME1:EX	DE,HL 
+ea40 23				INC	HL		;ok, skip seperator. 
+ea41 22 88 e4			LD	(INPOINT),HL	;save input line pointer. 
+ea44 cd 5e e6			CALL	CONVFST		;convert this second file name now. 
+ea47 c2 73 ea			JP	NZ,RENAME5	;again, no wild cards. 
+ea4a f1				POP	AF		;if a drive was specified, then it 
+ea4b 47				LD	B,A		;must be the same as before. 
+ea4c 21 f0 eb			LD	HL,CHGDRV 
+ea4f 7e				LD	A,(HL) 
+ea50 b7				OR	A 
+ea51 ca 59 ea			JP	Z,RENAME2 
+ea54 b8				CP	B 
+ea55 70				LD	(HL),B 
+ea56 c2 73 ea			JP	NZ,RENAME5	;they were different, error. 
+ea59 70			RENAME2:LD	(HL),B		;	reset as per the first file specification. 
+ea5a af				XOR	A 
+ea5b 32 cd eb			LD	(FCB),A		;clear the drive byte of the fcb. 
+ea5e cd e9 e4		RENAME3:CALL	SRCHFCB		;and go look for second file. 
+ea61 ca 6d ea			JP	Z,RENAME4	;doesn't exist? 
+ea64 11 cd eb			LD	DE,FCB 
+ea67 cd 0e e5			CALL	RENAM		;ok, rename the file. 
+ea6a c3 86 eb			JP	GETBACK 
+ea6d			; 
+ea6d			;   Process rename errors here. 
+ea6d			; 
+ea6d cd ea e7		RENAME4:CALL	NONE		;file not there. 
+ea70 c3 86 eb			JP	GETBACK 
+ea73 cd 66 e8		RENAME5:CALL	RESETDR		;bad command format. 
+ea76 c3 09 e6			JP	SYNERR 
+ea79 01 82 ea		RENAME6:LD	BC,EXISTS	;destination file already exists. 
+ea7c cd a7 e4			CALL	PLINE 
+ea7f c3 86 eb			JP	GETBACK 
+ea82 .. 00		EXISTS:	DEFB	'File exists',0 
+ea8e			; 
+ea8e			;************************************************************** 
+ea8e			;* 
+ea8e			;*             U S E R   C O M M A N D 
+ea8e			;* 
+ea8e			;************************************************************** 
+ea8e			; 
+ea8e cd f8 e7		USER:	CALL	DECODE		;get numeric value following command. 
+ea91 fe 10			CP	16		;legal user number? 
+ea93 d2 09 e6			JP	NC,SYNERR 
+ea96 5f				LD	E,A		;yes but is there anything else? 
+ea97 3a ce eb			LD	A,(FCB+1) 
+ea9a fe 20			CP	' ' 
+ea9c ca 09 e6			JP	Z,SYNERR	;yes, that is not allowed. 
+ea9f cd 15 e5			CALL	GETSETUC	;ok, set user code. 
+eaa2 c3 89 eb			JP	GETBACK1 
+eaa5			; 
+eaa5			;************************************************************** 
+eaa5			;* 
+eaa5			;*        T R A N S I A N T   P R O G R A M   C O M M A N D 
+eaa5			;* 
+eaa5			;************************************************************** 
+eaa5			; 
+eaa5 cd f5 e5		UNKNOWN:CALL	VERIFY		;check for valid system (why?). 
+eaa8 3a ce eb			LD	A,(FCB+1)	;anything to execute? 
+eaab fe 20			CP	' ' 
+eaad c2 c4 ea			JP	NZ,UNKWN1 
+eab0 3a f0 eb			LD	A,(CHGDRV)	;nope, only a drive change? 
+eab3 b7				OR	A 
+eab4 ca 89 eb			JP	Z,GETBACK1	;neither??? 
+eab7 3d				DEC	A 
+eab8 32 ef eb			LD	(CDRIVE),A	;ok, store new drive. 
+eabb cd 29 e5			CALL	MOVECD		;set (TDRIVE) also. 
+eabe cd bd e4			CALL	DSKSEL		;and select this drive. 
+eac1 c3 89 eb			JP	GETBACK1	;then return. 
+eac4			; 
+eac4			;   Here a file name was typed. Prepare to execute it. 
+eac4			; 
+eac4 11 d6 eb		UNKWN1:	LD	DE,FCB+9	;an extension specified? 
+eac7 1a				LD	A,(DE) 
+eac8 fe 20			CP	' ' 
+eaca c2 09 e6			JP	NZ,SYNERR	;yes, not allowed. 
+eacd d5			UNKWN2:	PUSH	DE 
+eace cd 54 e8			CALL	DSELECT		;select specified drive. 
+ead1 d1				POP	DE 
+ead2 21 83 eb			LD	HL,COMFILE	;set the extension to 'COM'. 
+ead5 cd 40 e8			CALL	MOVE3 
+ead8 cd d0 e4			CALL	OPENFCB		;and open this file. 
+eadb ca 6b eb			JP	Z,UNKWN9	;not present? 
+eade			; 
+eade			;   Load in the program. 
+eade			; 
+eade 21 00 01			LD	HL,TBASE	;store the program starting here. 
+eae1 e5			UNKWN3:	PUSH	HL 
+eae2 eb				EX	DE,HL 
+eae3 cd d8 e5			CALL	DMASET		;set transfer address. 
+eae6 11 cd eb			LD	DE,FCB		;and read the next record. 
+eae9 cd f9 e4			CALL	RDREC 
+eaec c2 01 eb			JP	NZ,UNKWN4	;end of file or read error? 
+eaef e1				POP	HL		;nope, bump pointer for next sector. 
+eaf0 11 80 00			LD	DE,128 
+eaf3 19				ADD	HL,DE 
+eaf4 11 00 e4			LD	DE,CBASE	;enough room for the whole file? 
+eaf7 7d				LD	A,L 
+eaf8 93				SUB	E 
+eaf9 7c				LD	A,H 
+eafa 9a				SBC	A,D 
+eafb d2 71 eb			JP	NC,UNKWN0	;no, it can't fit. 
+eafe c3 e1 ea			JP	UNKWN3 
+eb01			; 
+eb01			;   Get here after finished reading. 
+eb01			; 
+eb01 e1			UNKWN4:	POP	HL 
+eb02 3d				DEC	A		;normal end of file? 
+eb03 c2 71 eb			JP	NZ,UNKWN0 
+eb06 cd 66 e8			CALL	RESETDR		;yes, reset previous drive. 
+eb09 cd 5e e6			CALL	CONVFST		;convert the first file name that follows 
+eb0c 21 f0 eb			LD	HL,CHGDRV	;command name. 
+eb0f e5				PUSH	HL 
+eb10 7e				LD	A,(HL)		;set drive code in default fcb. 
+eb11 32 cd eb			LD	(FCB),A 
+eb14 3e 10			LD	A,16		;put second name 16 bytes later. 
+eb16 cd 60 e6			CALL	CONVERT		;convert second file name. 
+eb19 e1				POP	HL 
+eb1a 7e				LD	A,(HL)		;and set the drive for this second file. 
+eb1b 32 dd eb			LD	(FCB+16),A 
+eb1e af				XOR	A		;clear record byte in fcb. 
+eb1f 32 ed eb			LD	(FCB+32),A 
+eb22 11 5c 00			LD	DE,TFCB		;move it into place at(005Ch). 
+eb25 21 cd eb			LD	HL,FCB 
+eb28 06 21			LD	B,33 
+eb2a cd 42 e8			CALL	HL2DE 
+eb2d 21 08 e4			LD	HL,INBUFF+2	;now move the remainder of the input 
+eb30 7e			UNKWN5:	LD	A,(HL)		;line down to (0080h). Look for a non blank. 
+eb31 b7				OR	A		;or a null. 
+eb32 ca 3e eb			JP	Z,UNKWN6 
+eb35 fe 20			CP	' ' 
+eb37 ca 3e eb			JP	Z,UNKWN6 
+eb3a 23				INC	HL 
+eb3b c3 30 eb			JP	UNKWN5 
+eb3e			; 
+eb3e			;   Do the line move now. It ends in a null byte. 
+eb3e			; 
+eb3e 06 00		UNKWN6:	LD	B,0		;keep a character count. 
+eb40 11 81 00			LD	DE,TBUFF+1	;data gets put here. 
+eb43 7e			UNKWN7:	LD	A,(HL)		;move it now. 
+eb44 12				LD	(DE),A 
+eb45 b7				OR	A 
+eb46 ca 4f eb			JP	Z,UNKWN8 
+eb49 04				INC	B 
+eb4a 23				INC	HL 
+eb4b 13				INC	DE 
+eb4c c3 43 eb			JP	UNKWN7 
+eb4f 78			UNKWN8:	LD	A,B		;now store the character count. 
+eb50 32 80 00			LD	(TBUFF),A 
+eb53 cd 98 e4			CALL	CRLF		;clean up the screen. 
+eb56 cd d5 e5			CALL	STDDMA		;set standard transfer address. 
+eb59 cd 1a e5			CALL	SETCDRV		;reset current drive. 
+eb5c cd 00 01			CALL	TBASE		;and execute the program. 
+eb5f			; 
+eb5f			;   Transiant programs return here (or reboot). 
+eb5f			; 
+eb5f 31 ab eb			LD	SP,BATCH	;set stack first off. 
+eb62 cd 29 e5			CALL	MOVECD		;move current drive into place (TDRIVE). 
+eb65 cd bd e4			CALL	DSKSEL		;and reselect it. 
+eb68 c3 82 e7			JP	CMMND1		;back to comand mode. 
+eb6b			; 
+eb6b			;   Get here if some error occured. 
+eb6b			; 
+eb6b cd 66 e8		UNKWN9:	CALL	RESETDR		;inproper format. 
+eb6e c3 09 e6			JP	SYNERR 
+eb71 01 7a eb		UNKWN0:	LD	BC,BADLOAD	;read error or won't fit. 
+eb74 cd a7 e4			CALL	PLINE 
+eb77 c3 86 eb			JP	GETBACK 
+eb7a .. 00		BADLOAD:DEFB	'Bad load',0 
+eb83 ..			COMFILE:DEFB	'COM'		;command file extension. 
+eb86			; 
+eb86			;   Get here to return to command level. We will reset the 
+eb86			; previous active drive and then either return to command 
+eb86			; level directly or print error message and then return. 
+eb86			; 
+eb86 cd 66 e8		GETBACK:CALL	RESETDR		;reset previous drive. 
+eb89 cd 5e e6		GETBACK1: CALL	CONVFST		;convert first name in (FCB). 
+eb8c 3a ce eb			LD	A,(FCB+1)	;if this was just a drive change request, 
+eb8f d6 20			SUB	' '		;make sure it was valid. 
+eb91 21 f0 eb			LD	HL,CHGDRV 
+eb94 b6				OR	(HL) 
+eb95 c2 09 e6			JP	NZ,SYNERR 
+eb98 c3 82 e7			JP	CMMND1		;ok, return to command level. 
+eb9b			; 
+eb9b			;   ccp stack area. 
+eb9b			; 
+eb9b 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00		DEFB	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
+ebab			CCPSTACK: EQU	$	;end of ccp stack area. 
+ebab			; 
+ebab			;   Batch (or SUBMIT) processing information storage. 
+ebab			; 
+ebab 00			BATCH:	DEFB	0		;batch mode flag (0=not active). 
+ebac 00 .. 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00	BATCHFCB: DEFB	0,'$$$     SUB',0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
+ebcd			; 
+ebcd			;   File control block setup by the CCP. 
+ebcd			; 
+ebcd 00 .. 00 00 00 00 00 .. 00 00 00 00 00	FCB:	DEFB	0,'           ',0,0,0,0,0,'           ',0,0,0,0,0 
+ebee 00			RTNCODE:DEFB	0		;status returned from bdos call. 
+ebef 00			CDRIVE:	DEFB	0		;currently active drive. 
+ebf0 00			CHGDRV:	DEFB	0		;change in drives flag (0=no change). 
+ebf1 00 00		NBYTES:	DEFW	0		;byte counter used by TYPE. 
+ebf3			; 
+ebf3			;   Room for expansion? 
+ebf3			; 
+ebf3 00 00 00 00 00 00 00 00 00 00 00 00 00		DEFB	0,0,0,0,0,0,0,0,0,0,0,0,0 
+ec00			; 
+ec00			;   Note that the following six bytes must match those at 
+ec00			; (PATTRN1) or cp/m will HALT. Why? 
+ec00			; 
+ec00 00 16 00 00 00 00	PATTRN2:DEFB	0,22,0,0,0,0	;(* serial number bytes *). 
+ec06			; 
+ec06			;************************************************************** 
+ec06			;* 
+ec06			;*                    B D O S   E N T R Y 
+ec06			;* 
+ec06			;************************************************************** 
+ec06			; 
+ec06 c3 11 ec		FBASE:	JP	FBASE1 
+ec09			; 
+ec09			;   Bdos error table. 
+ec09			; 
+ec09 99 ec		BADSCTR:DEFW	ERROR1		;bad sector on read or write. 
+ec0b a5 ec		BADSLCT:DEFW	ERROR2		;bad disk select. 
+ec0d ab ec		RODISK:	DEFW	ERROR3		;disk is read only. 
+ec0f b1 ec		ROFILE:	DEFW	ERROR4		;file is read only. 
+ec11			; 
+ec11			;   Entry into bdos. (DE) or (E) are the parameters passed. The 
+ec11			; function number desired is in register (C). 
+ec11			; 
+ec11 eb			FBASE1:	EX	DE,HL		;save the (DE) parameters. 
+ec12 22 43 ef			LD	(PARAMS),HL 
+ec15 eb				EX	DE,HL 
+ec16 7b				LD	A,E		;and save register (E) in particular. 
+ec17 32 d6 f9			LD	(EPARAM),A 
+ec1a 21 00 00			LD	HL,0 
+ec1d 22 45 ef			LD	(STATUS),HL	;clear return status. 
+ec20 39				ADD	HL,SP 
+ec21 22 0f ef			LD	(USRSTACK),HL	;save users stack pointer. 
+ec24 31 41 ef			LD	SP,STKAREA	;and set our own. 
+ec27 af				XOR	A		;clear auto select storage space. 
+ec28 32 e0 f9			LD	(AUTOFLAG),A 
+ec2b 32 de f9			LD	(AUTO),A 
+ec2e 21 74 f9			LD	HL,GOBACK	;set return address. 
+ec31 e5				PUSH	HL 
+ec32 79				LD	A,C		;get function number. 
+ec33 fe 29			CP	NFUNCTS		;valid function number? 
+ec35 d0				RET	NC 
+ec36 4b				LD	C,E		;keep single register function here. 
+ec37 21 47 ec			LD	HL,FUNCTNS	;now look thru the function table. 
+ec3a 5f				LD	E,A 
+ec3b 16 00			LD	D,0		;(DE)=function number. 
+ec3d 19				ADD	HL,DE 
+ec3e 19				ADD	HL,DE		;(HL)=(start of table)+2*(function number). 
+ec3f 5e				LD	E,(HL) 
+ec40 23				INC	HL 
+ec41 56				LD	D,(HL)		;now (DE)=address for this function. 
+ec42 2a 43 ef			LD	HL,(PARAMS)	;retrieve parameters. 
+ec45 eb				EX	DE,HL		;now (DE) has the original parameters. 
+ec46 e9				JP	(HL)		;execute desired function. 
+ec47			; 
+ec47			;   BDOS function jump table. 
+ec47			; 
+ec47			NFUNCTS: EQU	41		;number of functions in followin table. 
+ec47			; 
+ec47 03 fa c8 ee 90 ed ce ee 12 fa 0f fa d4 ee ed ee	FUNCTNS:DEFW	WBOOT,GETCON,OUTCON,GETRDR,PUNCH,LIST,DIRCIO,GETIOB 
+ec57 f3 ee f8 ee e1 ed fe ee 7e f8 83 f8 45 f8 9c f8		DEFW	SETIOB,PRTSTR,RDBUFF,GETCSTS,GETVER,RSTDSK,SETDSK,OPENFIL 
+ec67 a5 f8 ab f8 c8 f8 d7 f8 e0 f8 e6 f8 ec f8		DEFW	CLOSEFIL,GETFST,GETNXT,DELFILE,READSEQ,WRTSEQ,FCREATE 
+ec75 f5 f8 fe f8 04 f9 0a f9 11 f9 2c f1 17 f9 1d f9		DEFW	RENFILE,GETLOG,GETCRNT,PUTDMA,GETALOC,WRTPRTD,GETROV,SETATTR 
+ec85 26 f9 2d f9 41 f9 47 f9 4d f9 0e f8 53 f9 04 ef		DEFW	GETPARM,GETUSER,RDRANDOM,WTRANDOM,FILESIZE,SETRAN,LOGOFF,RTN 
+ec95 04 ef 9b f9		DEFW	RTN,WTSPECL 
+ec99			; 
+ec99			;   Bdos error message section. 
+ec99			; 
+ec99 21 ca ec		ERROR1:	LD	HL,BADSEC	;bad sector message. 
+ec9c cd e5 ec			CALL	PRTERR		;print it and get a 1 char responce. 
+ec9f fe 03			CP	CNTRLC		;re-boot request (control-c)? 
+eca1 ca 00 00			JP	Z,0		;yes. 
+eca4 c9				RET			;no, return to retry i/o function. 
+eca5			; 
+eca5 21 d5 ec		ERROR2:	LD	HL,BADSEL	;bad drive selected. 
+eca8 c3 b4 ec			JP	ERROR5 
+ecab			; 
+ecab 21 e1 ec		ERROR3:	LD	HL,DISKRO	;disk is read only. 
+ecae c3 b4 ec			JP	ERROR5 
+ecb1			; 
+ecb1 21 dc ec		ERROR4:	LD	HL,FILERO	;file is read only. 
+ecb4			; 
+ecb4 cd e5 ec		ERROR5:	CALL	PRTERR 
+ecb7 c3 00 00			JP	0		;always reboot on these errors. 
+ecba			; 
+ecba ..			BDOSERR:DEFB	'Bdos Err On ' 
+ecc6 ..			BDOSDRV:DEFB	' : $' 
+ecca ..			BADSEC:	DEFB	'Bad Sector$' 
+ecd5 ..			BADSEL:	DEFB	'Select$' 
+ecdc ..			FILERO:	DEFB	'File ' 
+ece1 ..			DISKRO:	DEFB	'R/O$' 
+ece5			; 
+ece5			;   Print bdos error message. 
+ece5			; 
+ece5 e5			PRTERR:	PUSH	HL		;save second message pointer. 
+ece6 cd c9 ed			CALL	OUTCRLF		;send (cr)(lf). 
+ece9 3a 42 ef			LD	A,(ACTIVE)	;get active drive. 
+ecec c6 41			ADD	A,'A'		;make ascii. 
+ecee 32 c6 ec			LD	(BDOSDRV),A	;and put in message. 
+ecf1 01 ba ec			LD	BC,BDOSERR	;and print it. 
+ecf4 cd d3 ed			CALL	PRTMESG 
+ecf7 c1				POP	BC		;print second message line now. 
+ecf8 cd d3 ed			CALL	PRTMESG 
+ecfb			; 
+ecfb			;   Get an input character. We will check our 1 character 
+ecfb			; buffer first. This may be set by the console status routine. 
+ecfb			; 
+ecfb 21 0e ef		GETCHAR:LD	HL,CHARBUF	;check character buffer. 
+ecfe 7e				LD	A,(HL)		;anything present already? 
+ecff 36 00			LD	(HL),0		;...either case clear it. 
+ed01 b7				OR	A 
+ed02 c0				RET	NZ		;yes, use it. 
+ed03 c3 09 fa			JP	CONIN		;nope, go get a character responce. 
+ed06			; 
+ed06			;   Input and echo a character. 
+ed06			; 
+ed06 cd fb ec		GETECHO:CALL	GETCHAR		;input a character. 
+ed09 cd 14 ed			CALL	CHKCHAR		;carriage control? 
+ed0c d8				RET	C		;no, a regular control char so don't echo. 
+ed0d f5				PUSH	AF		;ok, save character now. 
+ed0e 4f				LD	C,A 
+ed0f cd 90 ed			CALL	OUTCON		;and echo it. 
+ed12 f1				POP	AF		;get character and return. 
+ed13 c9				RET	 
+ed14			; 
+ed14			;   Check character in (A). Set the zero flag on a carriage 
+ed14			; control character and the carry flag on any other control 
+ed14			; character. 
+ed14			; 
+ed14 fe 0d		CHKCHAR:CP	CR		;check for carriage return, line feed, backspace, 
+ed16 c8				RET	Z		;or a tab. 
+ed17 fe 0a			CP	LF 
+ed19 c8				RET	Z 
+ed1a fe 09			CP	TAB 
+ed1c c8				RET	Z 
+ed1d fe 08			CP	BS 
+ed1f c8				RET	Z 
+ed20 fe 20			CP	' '		;other control char? Set carry flag. 
+ed22 c9				RET	 
+ed23			; 
+ed23			;   Check the console during output. Halt on a control-s, then 
+ed23			; reboot on a control-c. If anything else is ready, clear the 
+ed23			; zero flag and return (the calling routine may want to do 
+ed23			; something). 
+ed23			; 
+ed23 3a 0e ef		CKCONSOL: LD	A,(CHARBUF)	;check buffer. 
+ed26 b7				OR	A		;if anything, just return without checking. 
+ed27 c2 45 ed			JP	NZ,CKCON2 
+ed2a cd 06 fa			CALL	CONST		;nothing in buffer. Check console. 
+ed2d e6 01			AND	01H		;look at bit 0. 
+ed2f c8				RET	Z		;return if nothing. 
+ed30 cd 09 fa			CALL	CONIN		;ok, get it. 
+ed33 fe 13			CP	CNTRLS		;if not control-s, return with zero cleared. 
+ed35 c2 42 ed			JP	NZ,CKCON1 
+ed38 cd 09 fa			CALL	CONIN		;halt processing until another char 
+ed3b fe 03			CP	CNTRLC		;is typed. Control-c? 
+ed3d ca 00 00			JP	Z,0		;yes, reboot now. 
+ed40 af				XOR	A		;no, just pretend nothing was ever ready. 
+ed41 c9				RET	 
+ed42 32 0e ef		CKCON1:	LD	(CHARBUF),A	;save character in buffer for later processing. 
+ed45 3e 01		CKCON2:	LD	A,1		;set (A) to non zero to mean something is ready. 
+ed47 c9				RET	 
+ed48			; 
+ed48			;   Output (C) to the screen. If the printer flip-flop flag 
+ed48			; is set, we will send character to printer also. The console 
+ed48			; will be checked in the process. 
+ed48			; 
+ed48 3a 0a ef		OUTCHAR:LD	A,(OUTFLAG)	;check output flag. 
+ed4b b7				OR	A		;anything and we won't generate output. 
+ed4c c2 62 ed			JP	NZ,OUTCHR1 
+ed4f c5				PUSH	BC 
+ed50 cd 23 ed			CALL	CKCONSOL	;check console (we don't care whats there). 
+ed53 c1				POP	BC 
+ed54 c5				PUSH	BC 
+ed55 cd 0c fa			CALL	CONOUT		;output (C) to the screen. 
+ed58 c1				POP	BC 
+ed59 c5				PUSH	BC 
+ed5a 3a 0d ef			LD	A,(PRTFLAG)	;check printer flip-flop flag. 
+ed5d b7				OR	A 
+ed5e c4 0f fa			CALL	NZ,LIST		;print it also if non-zero. 
+ed61 c1				POP	BC 
+ed62 79			OUTCHR1:LD	A,C		;update cursors position. 
+ed63 21 0c ef			LD	HL,CURPOS 
+ed66 fe 7f			CP	DEL		;rubouts don't do anything here. 
+ed68 c8				RET	Z 
+ed69 34				INC	(HL)		;bump line pointer. 
+ed6a fe 20			CP	' '		;and return if a normal character. 
+ed6c d0				RET	NC 
+ed6d 35				DEC	(HL)		;restore and check for the start of the line. 
+ed6e 7e				LD	A,(HL) 
+ed6f b7				OR	A 
+ed70 c8				RET	Z		;ingnore control characters at the start of the line. 
+ed71 79				LD	A,C 
+ed72 fe 08			CP	BS		;is it a backspace? 
+ed74 c2 79 ed			JP	NZ,OUTCHR2 
+ed77 35				DEC	(HL)		;yes, backup pointer. 
+ed78 c9				RET	 
+ed79 fe 0a		OUTCHR2:CP	LF		;is it a line feed? 
+ed7b c0				RET	NZ		;ignore anything else. 
+ed7c 36 00			LD	(HL),0		;reset pointer to start of line. 
+ed7e c9				RET	 
+ed7f			; 
+ed7f			;   Output (A) to the screen. If it is a control character 
+ed7f			; (other than carriage control), use ^x format. 
+ed7f			; 
+ed7f 79			SHOWIT:	LD	A,C 
+ed80 cd 14 ed			CALL	CHKCHAR		;check character. 
+ed83 d2 90 ed			JP	NC,OUTCON	;not a control, use normal output. 
+ed86 f5				PUSH	AF 
+ed87 0e 5e			LD	C,'^'		;for a control character, preceed it with '^'. 
+ed89 cd 48 ed			CALL	OUTCHAR 
+ed8c f1				POP	AF 
+ed8d f6 40			OR	'@'		;and then use the letter equivelant. 
+ed8f 4f				LD	C,A 
+ed90			; 
+ed90			;   Function to output (C) to the console device and expand tabs 
+ed90			; if necessary. 
+ed90			; 
+ed90 79			OUTCON:	LD	A,C 
+ed91 fe 09			CP	TAB		;is it a tab? 
+ed93 c2 48 ed			JP	NZ,OUTCHAR	;use regular output. 
+ed96 0e 20		OUTCON1:LD	C,' '		;yes it is, use spaces instead. 
+ed98 cd 48 ed			CALL	OUTCHAR 
+ed9b 3a 0c ef			LD	A,(CURPOS)	;go until the cursor is at a multiple of 8 
+ed9e			 
+ed9e e6 07			AND	07H		;position. 
+eda0 c2 96 ed			JP	NZ,OUTCON1 
+eda3 c9				RET	 
+eda4			; 
+eda4			;   Echo a backspace character. Erase the prevoius character 
+eda4			; on the screen. 
+eda4			; 
+eda4 cd ac ed		BACKUP:	CALL	BACKUP1		;backup the screen 1 place. 
+eda7 0e 20			LD	C,' '		;then blank that character. 
+eda9 cd 0c fa			CALL	CONOUT 
+edac 0e 08		BACKUP1:LD	C,BS		;then back space once more. 
+edae c3 0c fa			JP	CONOUT 
+edb1			; 
+edb1			;   Signal a deleted line. Print a '#' at the end and start 
+edb1			; over. 
+edb1			; 
+edb1 0e 23		NEWLINE:LD	C,'#' 
+edb3 cd 48 ed			CALL	OUTCHAR		;print this. 
+edb6 cd c9 ed			CALL	OUTCRLF		;start new line. 
+edb9 3a 0c ef		NEWLN1:	LD	A,(CURPOS)	;move the cursor to the starting position. 
+edbc 21 0b ef			LD	HL,STARTING 
+edbf be				CP	(HL) 
+edc0 d0				RET	NC		;there yet? 
+edc1 0e 20			LD	C,' ' 
+edc3 cd 48 ed			CALL	OUTCHAR		;nope, keep going. 
+edc6 c3 b9 ed			JP	NEWLN1 
+edc9			; 
+edc9			;   Output a (cr) (lf) to the console device (screen). 
+edc9			; 
+edc9 0e 0d		OUTCRLF:LD	C,CR 
+edcb cd 48 ed			CALL	OUTCHAR 
+edce 0e 0a			LD	C,LF 
+edd0 c3 48 ed			JP	OUTCHAR 
+edd3			; 
+edd3			;   Print message pointed to by (BC). It will end with a '$'. 
+edd3			; 
+edd3 0a			PRTMESG:LD	A,(BC)		;check for terminating character. 
+edd4 fe 24			CP	'$' 
+edd6 c8				RET	Z 
+edd7 03				INC	BC 
+edd8 c5				PUSH	BC		;otherwise, bump pointer and print it. 
+edd9 4f				LD	C,A 
+edda cd 90 ed			CALL	OUTCON 
+eddd c1				POP	BC 
+edde c3 d3 ed			JP	PRTMESG 
+ede1			; 
+ede1			;   Function to execute a buffered read. 
+ede1			; 
+ede1 3a 0c ef		RDBUFF:	LD	A,(CURPOS)	;use present location as starting one. 
+ede4 32 0b ef			LD	(STARTING),A 
+ede7 2a 43 ef			LD	HL,(PARAMS)	;get the maximum buffer space. 
+edea 4e				LD	C,(HL) 
+edeb 23				INC	HL		;point to first available space. 
+edec e5				PUSH	HL		;and save. 
+eded 06 00			LD	B,0		;keep a character count. 
+edef c5			RDBUF1:	PUSH	BC 
+edf0 e5				PUSH	HL 
+edf1 cd fb ec		RDBUF2:	CALL	GETCHAR		;get the next input character. 
+edf4 e6 7f			AND	7FH		;strip bit 7. 
+edf6 e1				POP	HL		;reset registers. 
+edf7 c1				POP	BC 
+edf8 fe 0d			CP	CR		;en of the line? 
+edfa ca c1 ee			JP	Z,RDBUF17 
+edfd fe 0a			CP	LF 
+edff ca c1 ee			JP	Z,RDBUF17 
+ee02 fe 08			CP	BS		;how about a backspace? 
+ee04 c2 16 ee			JP	NZ,RDBUF3 
+ee07 78				LD	A,B		;yes, but ignore at the beginning of the line. 
+ee08 b7				OR	A 
+ee09 ca ef ed			JP	Z,RDBUF1 
+ee0c 05				DEC	B		;ok, update counter. 
+ee0d 3a 0c ef			LD	A,(CURPOS)	;if we backspace to the start of the line, 
+ee10 32 0a ef			LD	(OUTFLAG),A	;treat as a cancel (control-x). 
+ee13 c3 70 ee			JP	RDBUF10 
+ee16 fe 7f		RDBUF3:	CP	DEL		;user typed a rubout? 
+ee18 c2 26 ee			JP	NZ,RDBUF4 
+ee1b 78				LD	A,B		;ignore at the start of the line. 
+ee1c b7				OR	A 
+ee1d ca ef ed			JP	Z,RDBUF1 
+ee20 7e				LD	A,(HL)		;ok, echo the prevoius character. 
+ee21 05				DEC	B		;and reset pointers (counters). 
+ee22 2b				DEC	HL 
+ee23 c3 a9 ee			JP	RDBUF15 
+ee26 fe 05		RDBUF4:	CP	CNTRLE		;physical end of line? 
+ee28 c2 37 ee			JP	NZ,RDBUF5 
+ee2b c5				PUSH	BC		;yes, do it. 
+ee2c e5				PUSH	HL 
+ee2d cd c9 ed			CALL	OUTCRLF 
+ee30 af				XOR	A		;and update starting position. 
+ee31 32 0b ef			LD	(STARTING),A 
+ee34 c3 f1 ed			JP	RDBUF2 
+ee37 fe 10		RDBUF5:	CP	CNTRLP		;control-p? 
+ee39 c2 48 ee			JP	NZ,RDBUF6 
+ee3c e5				PUSH	HL		;yes, flip the print flag filp-flop byte. 
+ee3d 21 0d ef			LD	HL,PRTFLAG 
+ee40 3e 01			LD	A,1		;PRTFLAG=1-PRTFLAG 
+ee42 96				SUB	(HL) 
+ee43 77				LD	(HL),A 
+ee44 e1				POP	HL 
+ee45 c3 ef ed			JP	RDBUF1 
+ee48 fe 18		RDBUF6:	CP	CNTRLX		;control-x (cancel)? 
+ee4a c2 5f ee			JP	NZ,RDBUF8 
+ee4d e1				POP	HL 
+ee4e 3a 0b ef		RDBUF7:	LD	A,(STARTING)	;yes, backup the cursor to here. 
+ee51 21 0c ef			LD	HL,CURPOS 
+ee54 be				CP	(HL) 
+ee55 d2 e1 ed			JP	NC,RDBUFF	;done yet? 
+ee58 35				DEC	(HL)		;no, decrement pointer and output back up one space. 
+ee59 cd a4 ed			CALL	BACKUP 
+ee5c c3 4e ee			JP	RDBUF7 
+ee5f fe 15		RDBUF8:	CP	CNTRLU		;cntrol-u (cancel line)? 
+ee61 c2 6b ee			JP	NZ,RDBUF9 
+ee64 cd b1 ed			CALL	NEWLINE		;start a new line. 
+ee67 e1				POP	HL 
+ee68 c3 e1 ed			JP	RDBUFF 
+ee6b fe 12		RDBUF9:	CP	CNTRLR		;control-r? 
+ee6d c2 a6 ee			JP	NZ,RDBUF14 
+ee70 c5			RDBUF10:PUSH	BC		;yes, start a new line and retype the old one. 
+ee71 cd b1 ed			CALL	NEWLINE 
+ee74 c1				POP	BC 
+ee75 e1				POP	HL 
+ee76 e5				PUSH	HL 
+ee77 c5				PUSH	BC 
+ee78 78			RDBUF11:LD	A,B		;done whole line yet? 
+ee79 b7				OR	A 
+ee7a ca 8a ee			JP	Z,RDBUF12 
+ee7d 23				INC	HL		;nope, get next character. 
+ee7e 4e				LD	C,(HL) 
+ee7f 05				DEC	B		;count it. 
+ee80 c5				PUSH	BC 
+ee81 e5				PUSH	HL 
+ee82 cd 7f ed			CALL	SHOWIT		;and display it. 
+ee85 e1				POP	HL 
+ee86 c1				POP	BC 
+ee87 c3 78 ee			JP	RDBUF11 
+ee8a e5			RDBUF12:PUSH	HL		;done with line. If we were displaying 
+ee8b 3a 0a ef			LD	A,(OUTFLAG)	;then update cursor position. 
+ee8e b7				OR	A 
+ee8f ca f1 ed			JP	Z,RDBUF2 
+ee92 21 0c ef			LD	HL,CURPOS	;because this line is shorter, we must 
+ee95 96				SUB	(HL)		;back up the cursor (not the screen however) 
+ee96 32 0a ef			LD	(OUTFLAG),A	;some number of positions. 
+ee99 cd a4 ed		RDBUF13:CALL	BACKUP		;note that as long as (OUTFLAG) is non 
+ee9c 21 0a ef			LD	HL,OUTFLAG	;zero, the screen will not be changed. 
+ee9f 35				DEC	(HL) 
+eea0 c2 99 ee			JP	NZ,RDBUF13 
+eea3 c3 f1 ed			JP	RDBUF2		;now just get the next character. 
+eea6			; 
+eea6			;   Just a normal character, put this in our buffer and echo. 
+eea6			; 
+eea6 23			RDBUF14:INC	HL 
+eea7 77				LD	(HL),A		;store character. 
+eea8 04				INC	B		;and count it. 
+eea9 c5			RDBUF15:PUSH	BC 
+eeaa e5				PUSH	HL 
+eeab 4f				LD	C,A		;echo it now. 
+eeac cd 7f ed			CALL	SHOWIT 
+eeaf e1				POP	HL 
+eeb0 c1				POP	BC 
+eeb1 7e				LD	A,(HL)		;was it an abort request? 
+eeb2 fe 03			CP	CNTRLC		;control-c abort? 
+eeb4 78				LD	A,B 
+eeb5 c2 bd ee			JP	NZ,RDBUF16 
+eeb8 fe 01			CP	1		;only if at start of line. 
+eeba ca 00 00			JP	Z,0 
+eebd b9			RDBUF16:CP	C		;nope, have we filled the buffer? 
+eebe da ef ed			JP	C,RDBUF1 
+eec1 e1			RDBUF17:POP	HL		;yes end the line and return. 
+eec2 70				LD	(HL),B 
+eec3 0e 0d			LD	C,CR 
+eec5 c3 48 ed			JP	OUTCHAR		;output (cr) and return. 
+eec8			; 
+eec8			;   Function to get a character from the console device. 
+eec8			; 
+eec8 cd 06 ed		GETCON:	CALL	GETECHO		;get and echo. 
+eecb c3 01 ef			JP	SETSTAT		;save status and return. 
+eece			; 
+eece			;   Function to get a character from the tape reader device. 
+eece			; 
+eece cd 15 fa		GETRDR:	CALL	READER		;get a character from reader, set status and return. 
+eed1 c3 01 ef			JP	SETSTAT 
+eed4			; 
+eed4			;  Function to perform direct console i/o. If (C) contains (FF) 
+eed4			; then this is an input request. If (C) contains (FE) then 
+eed4			; this is a status request. Otherwise we are to output (C). 
+eed4			; 
+eed4 79			DIRCIO:	LD	A,C		;test for (FF). 
+eed5 3c				INC	A 
+eed6 ca e0 ee			JP	Z,DIRC1 
+eed9 3c				INC	A		;test for (FE). 
+eeda ca 06 fa			JP	Z,CONST 
+eedd c3 0c fa			JP	CONOUT		;just output (C). 
+eee0 cd 06 fa		DIRC1:	CALL	CONST		;this is an input request. 
+eee3 b7				OR	A 
+eee4 ca 91 f9			JP	Z,GOBACK1	;not ready? Just return (directly). 
+eee7 cd 09 fa			CALL	CONIN		;yes, get character. 
+eeea c3 01 ef			JP	SETSTAT		;set status and return. 
+eeed			; 
+eeed			;   Function to return the i/o byte. 
+eeed			; 
+eeed 3a 03 00		GETIOB:	LD	A,(IOBYTE) 
+eef0 c3 01 ef			JP	SETSTAT 
+eef3			; 
+eef3			;   Function to set the i/o byte. 
+eef3			; 
+eef3 21 03 00		SETIOB:	LD	HL,IOBYTE 
+eef6 71				LD	(HL),C 
+eef7 c9				RET	 
+eef8			; 
+eef8			;   Function to print the character string pointed to by (DE) 
+eef8			; on the console device. The string ends with a '$'. 
+eef8			; 
+eef8 eb			PRTSTR:	EX	DE,HL 
+eef9 4d				LD	C,L 
+eefa 44				LD	B,H		;now (BC) points to it. 
+eefb c3 d3 ed			JP	PRTMESG 
+eefe			; 
+eefe			;   Function to interigate the console device. 
+eefe			; 
+eefe cd 23 ed		GETCSTS:CALL	CKCONSOL 
+ef01			; 
+ef01			;   Get here to set the status and return to the cleanup 
+ef01			; section. Then back to the user. 
+ef01			; 
+ef01 32 45 ef		SETSTAT:LD	(STATUS),A 
+ef04 c9			RTN:	RET	 
+ef05			; 
+ef05			;   Set the status to 1 (read or write error code). 
+ef05			; 
+ef05 3e 01		IOERR1:	LD	A,1 
+ef07 c3 01 ef			JP	SETSTAT 
+ef0a			; 
+ef0a 00			OUTFLAG:DEFB	0		;output flag (non zero means no output). 
+ef0b 02			STARTING: DEFB	2		;starting position for cursor. 
+ef0c 00			CURPOS:	DEFB	0		;cursor position (0=start of line). 
+ef0d 00			PRTFLAG:DEFB	0		;printer flag (control-p toggle). List if non zero. 
+ef0e 00			CHARBUF:DEFB	0		;single input character buffer. 
+ef0f			; 
+ef0f			;   Stack area for BDOS calls. 
+ef0f			; 
+ef0f 00 00		USRSTACK: DEFW	0		;save users stack pointer here. 
+ef11			; 
+ef11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00		DEFB	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
+ef29 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00		DEFB	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
+ef41			STKAREA: EQU	$		;end of stack area. 
+ef41			; 
+ef41 00			USERNO:	DEFB	0		;current user number. 
+ef42 00			ACTIVE:	DEFB	0		;currently active drive. 
+ef43 00 00		PARAMS:	DEFW	0		;save (DE) parameters here on entry. 
+ef45 00 00		STATUS:	DEFW	0		;status returned from bdos function. 
+ef47			; 
+ef47			;   Select error occured, jump to error routine. 
+ef47			; 
+ef47 21 0b ec		SLCTERR:LD	HL,BADSLCT 
+ef4a			; 
+ef4a			;   Jump to (HL) indirectly. 
+ef4a			; 
+ef4a 5e			JUMPHL:	LD	E,(HL) 
+ef4b 23				INC	HL 
+ef4c 56				LD	D,(HL)		;now (DE) contain the desired address. 
+ef4d eb				EX	DE,HL 
+ef4e e9				JP	(HL) 
+ef4f			; 
+ef4f			;   Block move. (DE) to (HL), (C) bytes total. 
+ef4f			; 
+ef4f 0c			DE2HL:	INC	C		;is count down to zero? 
+ef50 0d			DE2HL1:	DEC	C 
+ef51 c8				RET	Z		;yes, we are done. 
+ef52 1a				LD	A,(DE)		;no, move one more byte. 
+ef53 77				LD	(HL),A 
+ef54 13				INC	DE 
+ef55 23				INC	HL 
+ef56 c3 50 ef			JP	DE2HL1		;and repeat. 
+ef59			; 
+ef59			;   Select the desired drive. 
+ef59			; 
+ef59 3a 42 ef		SELECT:	LD	A,(ACTIVE)	;get active disk. 
+ef5c 4f				LD	C,A 
+ef5d cd 1b fa			CALL	SELDSK		;select it. 
+ef60 7c				LD	A,H		;valid drive? 
+ef61 b5				OR	L		;valid drive? 
+ef62 c8				RET	Z		;return if not. 
+ef63			; 
+ef63			;   Here, the BIOS returned the address of the parameter block 
+ef63			; in (HL). We will extract the necessary pointers and save them. 
+ef63			; 
+ef63 5e				LD	E,(HL)		;yes, get address of translation table into (DE). 
+ef64 23				INC	HL 
+ef65 56				LD	D,(HL) 
+ef66 23				INC	HL 
+ef67 22 b3 f9			LD	(SCRATCH1),HL	;save pointers to scratch areas. 
+ef6a 23				INC	HL 
+ef6b 23				INC	HL 
+ef6c 22 b5 f9			LD	(SCRATCH2),HL	;ditto. 
+ef6f 23				INC	HL 
+ef70 23				INC	HL 
+ef71 22 b7 f9			LD	(SCRATCH3),HL	;ditto. 
+ef74 23				INC	HL 
+ef75 23				INC	HL 
+ef76 eb				EX	DE,HL		;now save the translation table address. 
+ef77 22 d0 f9			LD	(XLATE),HL 
+ef7a 21 b9 f9			LD	HL,DIRBUF	;put the next 8 bytes here. 
+ef7d 0e 08			LD	C,8		;they consist of the directory buffer 
+ef7f cd 4f ef			CALL	DE2HL		;pointer, parameter block pointer, 
+ef82 2a bb f9			LD	HL,(DISKPB)	;check and allocation vectors. 
+ef85 eb				EX	DE,HL 
+ef86 21 c1 f9			LD	HL,SECTORS	;move parameter block into our ram. 
+ef89 0e 0f			LD	C,15		;it is 15 bytes long. 
+ef8b cd 4f ef			CALL	DE2HL 
+ef8e 2a c6 f9			LD	HL,(DSKSIZE)	;check disk size. 
+ef91 7c				LD	A,H		;more than 256 blocks on this? 
+ef92 21 dd f9			LD	HL,BIGDISK 
+ef95 36 ff			LD	(HL),0FFH	;set to samll. 
+ef97 b7				OR	A 
+ef98 ca 9d ef			JP	Z,SELECT1 
+ef9b 36 00			LD	(HL),0		;wrong, set to large. 
+ef9d 3e ff		SELECT1:LD	A,0FFH		;clear the zero flag. 
+ef9f b7				OR	A 
+efa0 c9				RET	 
+efa1			; 
+efa1			;   Routine to home the disk track head and clear pointers. 
+efa1			; 
+efa1 cd 18 fa		HOMEDRV:CALL	HOME		;home the head. 
+efa4 af				XOR	A 
+efa5 2a b5 f9			LD	HL,(SCRATCH2)	;set our track pointer also. 
+efa8 77				LD	(HL),A 
+efa9 23				INC	HL 
+efaa 77				LD	(HL),A 
+efab 2a b7 f9			LD	HL,(SCRATCH3)	;and our sector pointer. 
+efae 77				LD	(HL),A 
+efaf 23				INC	HL 
+efb0 77				LD	(HL),A 
+efb1 c9				RET	 
+efb2			; 
+efb2			;   Do the actual disk read and check the error return status. 
+efb2			; 
+efb2 cd 27 fa		DOREAD:	CALL	READ 
+efb5 c3 bb ef			JP	IORET 
+efb8			; 
+efb8			;   Do the actual disk write and handle any bios error. 
+efb8			; 
+efb8 cd 2a fa		DOWRITE:CALL	WRITE 
+efbb b7			IORET:	OR	A 
+efbc c8				RET	Z		;return unless an error occured. 
+efbd 21 09 ec			LD	HL,BADSCTR	;bad read/write on this sector. 
+efc0 c3 4a ef			JP	JUMPHL 
+efc3			; 
+efc3			;   Routine to select the track and sector that the desired 
+efc3			; block number falls in. 
+efc3			; 
+efc3 2a ea f9		TRKSEC:	LD	HL,(FILEPOS)	;get position of last accessed file 
+efc6 0e 02			LD	C,2		;in directory and compute sector #. 
+efc8 cd ea f0			CALL	SHIFTR		;sector #=file-position/4. 
+efcb 22 e5 f9			LD	(BLKNMBR),HL	;save this as the block number of interest. 
+efce 22 ec f9			LD	(CKSUMTBL),HL	;what's it doing here too? 
+efd1			; 
+efd1			;   if the sector number has already been set (BLKNMBR), enter 
+efd1			; at this point. 
+efd1			; 
+efd1 21 e5 f9		TRKSEC1:LD	HL,BLKNMBR 
+efd4 4e				LD	C,(HL)		;move sector number into (BC). 
+efd5 23				INC	HL 
+efd6 46				LD	B,(HL) 
+efd7 2a b7 f9			LD	HL,(SCRATCH3)	;get current sector number and 
+efda 5e				LD	E,(HL)		;move this into (DE). 
+efdb 23				INC	HL 
+efdc 56				LD	D,(HL) 
+efdd 2a b5 f9			LD	HL,(SCRATCH2)	;get current track number. 
+efe0 7e				LD	A,(HL)		;and this into (HL). 
+efe1 23				INC	HL 
+efe2 66				LD	H,(HL) 
+efe3 6f				LD	L,A 
+efe4 79			TRKSEC2:LD	A,C		;is desired sector before current one? 
+efe5 93				SUB	E 
+efe6 78				LD	A,B 
+efe7 9a				SBC	A,D 
+efe8 d2 fa ef			JP	NC,TRKSEC3 
+efeb e5				PUSH	HL		;yes, decrement sectors by one track. 
+efec 2a c1 f9			LD	HL,(SECTORS)	;get sectors per track. 
+efef 7b				LD	A,E 
+eff0 95				SUB	L 
+eff1 5f				LD	E,A 
+eff2 7a				LD	A,D 
+eff3 9c				SBC	A,H 
+eff4 57				LD	D,A		;now we have backed up one full track. 
+eff5 e1				POP	HL 
+eff6 2b				DEC	HL		;adjust track counter. 
+eff7 c3 e4 ef			JP	TRKSEC2 
+effa e5			TRKSEC3:PUSH	HL		;desired sector is after current one. 
+effb 2a c1 f9			LD	HL,(SECTORS)	;get sectors per track. 
+effe 19				ADD	HL,DE		;bump sector pointer to next track. 
+efff da 0f f0			JP	C,TRKSEC4 
+f002 79				LD	A,C		;is desired sector now before current one? 
+f003 95				SUB	L 
+f004 78				LD	A,B 
+f005 9c				SBC	A,H 
+f006 da 0f f0			JP	C,TRKSEC4 
+f009 eb				EX	DE,HL		;not yes, increment track counter 
+f00a e1				POP	HL		;and continue until it is. 
+f00b 23				INC	HL 
+f00c c3 fa ef			JP	TRKSEC3 
+f00f			; 
+f00f			;   here we have determined the track number that contains the 
+f00f			; desired sector. 
+f00f			; 
+f00f e1			TRKSEC4:POP	HL		;get track number (HL). 
+f010 c5				PUSH	BC 
+f011 d5				PUSH	DE 
+f012 e5				PUSH	HL 
+f013 eb				EX	DE,HL 
+f014 2a ce f9			LD	HL,(OFFSET)	;adjust for first track offset. 
+f017 19				ADD	HL,DE 
+f018 44				LD	B,H 
+f019 4d				LD	C,L 
+f01a cd 1e fa			CALL	SETTRK		;select this track. 
+f01d d1				POP	DE		;reset current track pointer. 
+f01e 2a b5 f9			LD	HL,(SCRATCH2) 
+f021 73				LD	(HL),E 
+f022 23				INC	HL 
+f023 72				LD	(HL),D 
+f024 d1				POP	DE 
+f025 2a b7 f9			LD	HL,(SCRATCH3)	;reset the first sector on this track. 
+f028 73				LD	(HL),E 
+f029 23				INC	HL 
+f02a 72				LD	(HL),D 
+f02b c1				POP	BC 
+f02c 79				LD	A,C		;now subtract the desired one. 
+f02d 93				SUB	E		;to make it relative (1-# sectors/track). 
+f02e 4f				LD	C,A 
+f02f 78				LD	A,B 
+f030 9a				SBC	A,D 
+f031 47				LD	B,A 
+f032 2a d0 f9			LD	HL,(XLATE)	;translate this sector according to this table. 
+f035 eb				EX	DE,HL 
+f036 cd 30 fa			CALL	SECTRN		;let the bios translate it. 
+f039 4d				LD	C,L 
+f03a 44				LD	B,H 
+f03b c3 21 fa			JP	SETSEC		;and select it. 
+f03e			; 
+f03e			;   Compute block number from record number (SAVNREC) and 
+f03e			; extent number (SAVEXT). 
+f03e			; 
+f03e 21 c3 f9		GETBLOCK: LD	HL,BLKSHFT	;get logical to physical conversion. 
+f041 4e				LD	C,(HL)		;note that this is base 2 log of ratio. 
+f042 3a e3 f9			LD	A,(SAVNREC)	;get record number. 
+f045 b7			GETBLK1:OR	A		;compute (A)=(A)/2^BLKSHFT. 
+f046 1f				RRA	 
+f047 0d				DEC	C 
+f048 c2 45 f0			JP	NZ,GETBLK1 
+f04b 47				LD	B,A		;save result in (B). 
+f04c 3e 08			LD	A,8 
+f04e 96				SUB	(HL) 
+f04f 4f				LD	C,A		;compute (C)=8-BLKSHFT. 
+f050 3a e2 f9			LD	A,(SAVEXT) 
+f053 0d			GETBLK2:DEC	C		;compute (A)=SAVEXT*2^(8-BLKSHFT). 
+f054 ca 5c f0			JP	Z,GETBLK3 
+f057 b7				OR	A 
+f058 17				RLA	 
+f059 c3 53 f0			JP	GETBLK2 
+f05c 80			GETBLK3:ADD	A,B 
+f05d c9				RET	 
+f05e			; 
+f05e			;   Routine to extract the (BC) block byte from the fcb pointed 
+f05e			; to by (PARAMS). If this is a big-disk, then these are 16 bit 
+f05e			; block numbers, else they are 8 bit numbers. 
+f05e			; Number is returned in (HL). 
+f05e			; 
+f05e 2a 43 ef		EXTBLK:	LD	HL,(PARAMS)	;get fcb address. 
+f061 11 10 00			LD	DE,16		;block numbers start 16 bytes into fcb. 
+f064 19				ADD	HL,DE 
+f065 09				ADD	HL,BC 
+f066 3a dd f9			LD	A,(BIGDISK)	;are we using a big-disk? 
+f069 b7				OR	A 
+f06a ca 71 f0			JP	Z,EXTBLK1 
+f06d 6e				LD	L,(HL)		;no, extract an 8 bit number from the fcb. 
+f06e 26 00			LD	H,0 
+f070 c9				RET	 
+f071 09			EXTBLK1:ADD	HL,BC		;yes, extract a 16 bit number. 
+f072 5e				LD	E,(HL) 
+f073 23				INC	HL 
+f074 56				LD	D,(HL) 
+f075 eb				EX	DE,HL		;return in (HL). 
+f076 c9				RET	 
+f077			; 
+f077			;   Compute block number. 
+f077			; 
+f077 cd 3e f0		COMBLK:	CALL	GETBLOCK 
+f07a 4f				LD	C,A 
+f07b 06 00			LD	B,0 
+f07d cd 5e f0			CALL	EXTBLK 
+f080 22 e5 f9			LD	(BLKNMBR),HL 
+f083 c9				RET	 
+f084			; 
+f084			;   Check for a zero block number (unused). 
+f084			; 
+f084 2a e5 f9		CHKBLK:	LD	HL,(BLKNMBR) 
+f087 7d				LD	A,L		;is it zero? 
+f088 b4				OR	H 
+f089 c9				RET	 
+f08a			; 
+f08a			;   Adjust physical block (BLKNMBR) and convert to logical 
+f08a			; sector (LOGSECT). This is the starting sector of this block. 
+f08a			; The actual sector of interest is then added to this and the 
+f08a			; resulting sector number is stored back in (BLKNMBR). This 
+f08a			; will still have to be adjusted for the track number. 
+f08a			; 
+f08a 3a c3 f9		LOGICAL:LD	A,(BLKSHFT)	;get log2(physical/logical sectors). 
+f08d 2a e5 f9			LD	HL,(BLKNMBR)	;get physical sector desired. 
+f090 29			LOGICL1:ADD	HL,HL		;compute logical sector number. 
+f091 3d				DEC	A		;note logical sectors are 128 bytes long. 
+f092 c2 90 f0			JP	NZ,LOGICL1 
+f095 22 e7 f9			LD	(LOGSECT),HL	;save logical sector. 
+f098 3a c4 f9			LD	A,(BLKMASK)	;get block mask. 
+f09b 4f				LD	C,A 
+f09c 3a e3 f9			LD	A,(SAVNREC)	;get next sector to access. 
+f09f a1				AND	C		;extract the relative position within physical block. 
+f0a0 b5				OR	L		;and add it too logical sector. 
+f0a1 6f				LD	L,A 
+f0a2 22 e5 f9			LD	(BLKNMBR),HL	;and store. 
+f0a5 c9				RET	 
+f0a6			; 
+f0a6			;   Set (HL) to point to extent byte in fcb. 
+f0a6			; 
+f0a6 2a 43 ef		SETEXT:	LD	HL,(PARAMS) 
+f0a9 11 0c 00			LD	DE,12		;it is the twelth byte. 
+f0ac 19				ADD	HL,DE 
+f0ad c9				RET	 
+f0ae			; 
+f0ae			;   Set (HL) to point to record count byte in fcb and (DE) to 
+f0ae			; next record number byte. 
+f0ae			; 
+f0ae 2a 43 ef		SETHLDE:LD	HL,(PARAMS) 
+f0b1 11 0f 00			LD	DE,15		;record count byte (#15). 
+f0b4 19				ADD	HL,DE 
+f0b5 eb				EX	DE,HL 
+f0b6 21 11 00			LD	HL,17		;next record number (#32). 
+f0b9 19				ADD	HL,DE 
+f0ba c9				RET	 
+f0bb			; 
+f0bb			;   Save current file data from fcb. 
+f0bb			; 
+f0bb cd ae f0		STRDATA:CALL	SETHLDE 
+f0be 7e				LD	A,(HL)		;get and store record count byte. 
+f0bf 32 e3 f9			LD	(SAVNREC),A 
+f0c2 eb				EX	DE,HL 
+f0c3 7e				LD	A,(HL)		;get and store next record number byte. 
+f0c4 32 e1 f9			LD	(SAVNXT),A 
+f0c7 cd a6 f0			CALL	SETEXT		;point to extent byte. 
+f0ca 3a c5 f9			LD	A,(EXTMASK)	;get extent mask. 
+f0cd a6				AND	(HL) 
+f0ce 32 e2 f9			LD	(SAVEXT),A	;and save extent here. 
+f0d1 c9				RET	 
+f0d2			; 
+f0d2			;   Set the next record to access. If (MODE) is set to 2, then 
+f0d2			; the last record byte (SAVNREC) has the correct number to access. 
+f0d2			; For sequential access, (MODE) will be equal to 1. 
+f0d2			; 
+f0d2 cd ae f0		SETNREC:CALL	SETHLDE 
+f0d5 3a d5 f9			LD	A,(MODE)	;get sequential flag (=1). 
+f0d8 fe 02			CP	2		;a 2 indicates that no adder is needed. 
+f0da c2 de f0			JP	NZ,STNREC1 
+f0dd af				XOR	A		;clear adder (random access?). 
+f0de 4f			STNREC1:LD	C,A 
+f0df 3a e3 f9			LD	A,(SAVNREC)	;get last record number. 
+f0e2 81				ADD	A,C		;increment record count. 
+f0e3 77				LD	(HL),A		;and set fcb's next record byte. 
+f0e4 eb				EX	DE,HL 
+f0e5 3a e1 f9			LD	A,(SAVNXT)	;get next record byte from storage. 
+f0e8 77				LD	(HL),A		;and put this into fcb as number of records used. 
+f0e9 c9				RET	 
+f0ea			; 
+f0ea			;   Shift (HL) right (C) bits. 
+f0ea			; 
+f0ea 0c			SHIFTR:	INC	C 
+f0eb 0d			SHIFTR1:DEC	C 
+f0ec c8				RET	Z 
+f0ed 7c				LD	A,H 
+f0ee b7				OR	A 
+f0ef 1f				RRA	 
+f0f0 67				LD	H,A 
+f0f1 7d				LD	A,L 
+f0f2 1f				RRA	 
+f0f3 6f				LD	L,A 
+f0f4 c3 eb f0			JP	SHIFTR1 
+f0f7			; 
+f0f7			;   Compute the check-sum for the directory buffer. Return 
+f0f7			; integer sum in (A). 
+f0f7			; 
+f0f7 0e 80		CHECKSUM: LD	C,128		;length of buffer. 
+f0f9 2a b9 f9			LD	HL,(DIRBUF)	;get its location. 
+f0fc af				XOR	A		;clear summation byte. 
+f0fd 86			CHKSUM1:ADD	A,(HL)		;and compute sum ignoring carries. 
+f0fe 23				INC	HL 
+f0ff 0d				DEC	C 
+f100 c2 fd f0			JP	NZ,CHKSUM1 
+f103 c9				RET	 
+f104			; 
+f104			;   Shift (HL) left (C) bits. 
+f104			; 
+f104 0c			SHIFTL:	INC	C 
+f105 0d			SHIFTL1:DEC	C 
+f106 c8				RET	Z 
+f107 29				ADD	HL,HL		;shift left 1 bit. 
+f108 c3 05 f1			JP	SHIFTL1 
+f10b			; 
+f10b			;   Routine to set a bit in a 16 bit value contained in (BC). 
+f10b			; The bit set depends on the current drive selection. 
+f10b			; 
+f10b c5			SETBIT:	PUSH	BC		;save 16 bit word. 
+f10c 3a 42 ef			LD	A,(ACTIVE)	;get active drive. 
+f10f 4f				LD	C,A 
+f110 21 01 00			LD	HL,1 
+f113 cd 04 f1			CALL	SHIFTL		;shift bit 0 into place. 
+f116 c1				POP	BC		;now 'or' this with the original word. 
+f117 79				LD	A,C 
+f118 b5				OR	L 
+f119 6f				LD	L,A		;low byte done, do high byte. 
+f11a 78				LD	A,B 
+f11b b4				OR	H 
+f11c 67				LD	H,A 
+f11d c9				RET	 
+f11e			; 
+f11e			;   Extract the write protect status bit for the current drive. 
+f11e			; The result is returned in (A), bit 0. 
+f11e			; 
+f11e 2a ad f9		GETWPRT:LD	HL,(WRTPRT)	;get status bytes. 
+f121 3a 42 ef			LD	A,(ACTIVE)	;which drive is current? 
+f124 4f				LD	C,A 
+f125 cd ea f0			CALL	SHIFTR		;shift status such that bit 0 is the 
+f128 7d				LD	A,L		;one of interest for this drive. 
+f129 e6 01			AND	01H		;and isolate it. 
+f12b c9				RET	 
+f12c			; 
+f12c			;   Function to write protect the current disk. 
+f12c			; 
+f12c 21 ad f9		WRTPRTD:LD	HL,WRTPRT	;point to status word. 
+f12f 4e				LD	C,(HL)		;set (BC) equal to the status. 
+f130 23				INC	HL 
+f131 46				LD	B,(HL) 
+f132 cd 0b f1			CALL	SETBIT		;and set this bit according to current drive. 
+f135 22 ad f9			LD	(WRTPRT),HL	;then save. 
+f138 2a c8 f9			LD	HL,(DIRSIZE)	;now save directory size limit. 
+f13b 23				INC	HL		;remember the last one. 
+f13c eb				EX	DE,HL 
+f13d 2a b3 f9			LD	HL,(SCRATCH1)	;and store it here. 
+f140 73				LD	(HL),E		;put low byte. 
+f141 23				INC	HL 
+f142 72				LD	(HL),D		;then high byte. 
+f143 c9				RET	 
+f144			; 
+f144			;   Check for a read only file. 
+f144			; 
+f144 cd 5e f1		CHKROFL:CALL	FCB2HL		;set (HL) to file entry in directory buffer. 
+f147 11 09 00		CKROF1:	LD	DE,9		;look at bit 7 of the ninth byte. 
+f14a 19				ADD	HL,DE 
+f14b 7e				LD	A,(HL) 
+f14c 17				RLA	 
+f14d d0				RET	NC		;return if ok. 
+f14e 21 0f ec			LD	HL,ROFILE	;else, print error message and terminate. 
+f151 c3 4a ef			JP	JUMPHL 
+f154			; 
+f154			;   Check the write protect status of the active disk. 
+f154			; 
+f154 cd 1e f1		CHKWPRT:CALL	GETWPRT 
+f157 c8				RET	Z		;return if ok. 
+f158 21 0d ec			LD	HL,RODISK	;else print message and terminate. 
+f15b c3 4a ef			JP	JUMPHL 
+f15e			; 
+f15e			;   Routine to set (HL) pointing to the proper entry in the 
+f15e			; directory buffer. 
+f15e			; 
+f15e 2a b9 f9		FCB2HL:	LD	HL,(DIRBUF)	;get address of buffer. 
+f161 3a e9 f9			LD	A,(FCBPOS)	;relative position of file. 
+f164			; 
+f164			;   Routine to add (A) to (HL). 
+f164			; 
+f164 85			ADDA2HL:ADD	A,L 
+f165 6f				LD	L,A 
+f166 d0				RET	NC 
+f167 24				INC	H		;take care of any carry. 
+f168 c9				RET	 
+f169			; 
+f169			;   Routine to get the 's2' byte from the fcb supplied in 
+f169			; the initial parameter specification. 
+f169			; 
+f169 2a 43 ef		GETS2:	LD	HL,(PARAMS)	;get address of fcb. 
+f16c 11 0e 00			LD	DE,14		;relative position of 's2'. 
+f16f 19				ADD	HL,DE 
+f170 7e				LD	A,(HL)		;extract this byte. 
+f171 c9				RET	 
+f172			; 
+f172			;   Clear the 's2' byte in the fcb. 
+f172			; 
+f172 cd 69 f1		CLEARS2:CALL	GETS2		;this sets (HL) pointing to it. 
+f175 36 00			LD	(HL),0		;now clear it. 
+f177 c9				RET	 
+f178			; 
+f178			;   Set bit 7 in the 's2' byte of the fcb. 
+f178			; 
+f178 cd 69 f1		SETS2B7:CALL	GETS2		;get the byte. 
+f17b f6 80			OR	80H		;and set bit 7. 
+f17d 77				LD	(HL),A		;then store. 
+f17e c9				RET	 
+f17f			; 
+f17f			;   Compare (FILEPOS) with (SCRATCH1) and set flags based on 
+f17f			; the difference. This checks to see if there are more file 
+f17f			; names in the directory. We are at (FILEPOS) and there are 
+f17f			; (SCRATCH1) of them to check. 
+f17f			; 
+f17f 2a ea f9		MOREFLS:LD	HL,(FILEPOS)	;we are here. 
+f182 eb				EX	DE,HL 
+f183 2a b3 f9			LD	HL,(SCRATCH1)	;and don't go past here. 
+f186 7b				LD	A,E		;compute difference but don't keep. 
+f187 96				SUB	(HL) 
+f188 23				INC	HL 
+f189 7a				LD	A,D 
+f18a 9e				SBC	A,(HL)		; set carry if no more names. 
+f18b c9				RET	 
+f18c			; 
+f18c			;   Call this routine to prevent (SCRATCH1) from being greater 
+f18c			; than (FILEPOS). 
+f18c			; 
+f18c cd 7f f1		CHKNMBR:CALL	MOREFLS		;SCRATCH1 too big? 
+f18f d8				RET	C 
+f190 13				INC	DE		;yes, reset it to (FILEPOS). 
+f191 72				LD	(HL),D 
+f192 2b				DEC	HL 
+f193 73				LD	(HL),E 
+f194 c9				RET	 
+f195			; 
+f195			;   Compute (HL)=(DE)-(HL) 
+f195			; 
+f195 7b			SUBHL:	LD	A,E		;compute difference. 
+f196 95				SUB	L 
+f197 6f				LD	L,A		;store low byte. 
+f198 7a				LD	A,D 
+f199 9c				SBC	A,H 
+f19a 67				LD	H,A		;and then high byte. 
+f19b c9				RET	 
+f19c			; 
+f19c			;   Set the directory checksum byte. 
+f19c			; 
+f19c 0e ff		SETDIR:	LD	C,0FFH 
+f19e			; 
+f19e			;   Routine to set or compare the directory checksum byte. If 
+f19e			; (C)=0ffh, then this will set the checksum byte. Else the byte 
+f19e			; will be checked. If the check fails (the disk has been changed), 
+f19e			; then this disk will be write protected. 
+f19e			; 
+f19e 2a ec f9		CHECKDIR: LD	HL,(CKSUMTBL) 
+f1a1 eb				EX	DE,HL 
+f1a2 2a cc f9			LD	HL,(ALLOC1) 
+f1a5 cd 95 f1			CALL	SUBHL 
+f1a8 d0				RET	NC		;ok if (CKSUMTBL) > (ALLOC1), so return. 
+f1a9 c5				PUSH	BC 
+f1aa cd f7 f0			CALL	CHECKSUM	;else compute checksum. 
+f1ad 2a bd f9			LD	HL,(CHKVECT)	;get address of checksum table. 
+f1b0 eb				EX	DE,HL 
+f1b1 2a ec f9			LD	HL,(CKSUMTBL) 
+f1b4 19				ADD	HL,DE		;set (HL) to point to byte for this drive. 
+f1b5 c1				POP	BC 
+f1b6 0c				INC	C		;set or check ? 
+f1b7 ca c4 f1			JP	Z,CHKDIR1 
+f1ba be				CP	(HL)		;check them. 
+f1bb c8				RET	Z		;return if they are the same. 
+f1bc cd 7f f1			CALL	MOREFLS		;not the same, do we care? 
+f1bf d0				RET	NC 
+f1c0 cd 2c f1			CALL	WRTPRTD		;yes, mark this as write protected. 
+f1c3 c9				RET	 
+f1c4 77			CHKDIR1:LD	(HL),A		;just set the byte. 
+f1c5 c9				RET	 
+f1c6			; 
+f1c6			;   Do a write to the directory of the current disk. 
+f1c6			; 
+f1c6 cd 9c f1		DIRWRITE: CALL	SETDIR		;set checksum byte. 
+f1c9 cd e0 f1			CALL	DIRDMA		;set directory dma address. 
+f1cc 0e 01			LD	C,1		;tell the bios to actually write. 
+f1ce cd b8 ef			CALL	DOWRITE		;then do the write. 
+f1d1 c3 da f1			JP	DEFDMA 
+f1d4			; 
+f1d4			;   Read from the directory. 
+f1d4			; 
+f1d4 cd e0 f1		DIRREAD:CALL	DIRDMA		;set the directory dma address. 
+f1d7 cd b2 ef			CALL	DOREAD		;and read it. 
+f1da			; 
+f1da			;   Routine to set the dma address to the users choice. 
+f1da			; 
+f1da 21 b1 f9		DEFDMA:	LD	HL,USERDMA	;reset the default dma address and return. 
+f1dd c3 e3 f1			JP	DIRDMA1 
+f1e0			; 
+f1e0			;   Routine to set the dma address for directory work. 
+f1e0			; 
+f1e0 21 b9 f9		DIRDMA:	LD	HL,DIRBUF 
+f1e3			; 
+f1e3			;   Set the dma address. On entry, (HL) points to 
+f1e3			; word containing the desired dma address. 
+f1e3			; 
+f1e3 4e			DIRDMA1:LD	C,(HL) 
+f1e4 23				INC	HL 
+f1e5 46				LD	B,(HL)		;setup (BC) and go to the bios to set it. 
+f1e6 c3 24 fa			JP	SETDMA 
+f1e9			; 
+f1e9			;   Move the directory buffer into user's dma space. 
+f1e9			; 
+f1e9 2a b9 f9		MOVEDIR:LD	HL,(DIRBUF)	;buffer is located here, and 
+f1ec eb				EX	DE,HL 
+f1ed 2a b1 f9			LD	HL,(USERDMA)	; put it here. 
+f1f0 0e 80			LD	C,128		;this is its length. 
+f1f2 c3 4f ef			JP	DE2HL		;move it now and return. 
+f1f5			; 
+f1f5			;   Check (FILEPOS) and set the zero flag if it equals 0ffffh. 
+f1f5			; 
+f1f5 21 ea f9		CKFILPOS: LD	HL,FILEPOS 
+f1f8 7e				LD	A,(HL) 
+f1f9 23				INC	HL 
+f1fa be				CP	(HL)		;are both bytes the same? 
+f1fb c0				RET	NZ 
+f1fc 3c				INC	A		;yes, but are they each 0ffh? 
+f1fd c9				RET	 
+f1fe			; 
+f1fe			;   Set location (FILEPOS) to 0ffffh. 
+f1fe			; 
+f1fe 21 ff ff		STFILPOS: LD	HL,0FFFFH 
+f201 22 ea f9			LD	(FILEPOS),HL 
+f204 c9				RET	 
+f205			; 
+f205			;   Move on to the next file position within the current 
+f205			; directory buffer. If no more exist, set pointer to 0ffffh 
+f205			; and the calling routine will check for this. Enter with (C) 
+f205			; equal to 0ffh to cause the checksum byte to be set, else we 
+f205			; will check this disk and set write protect if checksums are 
+f205			; not the same (applies only if another directory sector must 
+f205			; be read). 
+f205			; 
+f205 2a c8 f9		NXENTRY:LD	HL,(DIRSIZE)	;get directory entry size limit. 
+f208 eb				EX	DE,HL 
+f209 2a ea f9			LD	HL,(FILEPOS)	;get current count. 
+f20c 23				INC	HL		;go on to the next one. 
+f20d 22 ea f9			LD	(FILEPOS),HL 
+f210 cd 95 f1			CALL	SUBHL		;(HL)=(DIRSIZE)-(FILEPOS) 
+f213 d2 19 f2			JP	NC,NXENT1	;is there more room left? 
+f216 c3 fe f1			JP	STFILPOS	;no. Set this flag and return. 
+f219 3a ea f9		NXENT1:	LD	A,(FILEPOS)	;get file position within directory. 
+f21c e6 03			AND	03H		;only look within this sector (only 4 entries fit). 
+f21e 06 05			LD	B,5		;convert to relative position (32 bytes each). 
+f220 87			NXENT2:	ADD	A,A		;note that this is not efficient code. 
+f221 05				DEC	B		;5 'ADD A's would be better. 
+f222 c2 20 f2			JP	NZ,NXENT2 
+f225 32 e9 f9			LD	(FCBPOS),A	;save it as position of fcb. 
+f228 b7				OR	A 
+f229 c0				RET	NZ		;return if we are within buffer. 
+f22a c5				PUSH	BC 
+f22b cd c3 ef			CALL	TRKSEC		;we need the next directory sector. 
+f22e cd d4 f1			CALL	DIRREAD 
+f231 c1				POP	BC 
+f232 c3 9e f1			JP	CHECKDIR 
+f235			; 
+f235			;   Routine to to get a bit from the disk space allocation 
+f235			; map. It is returned in (A), bit position 0. On entry to here, 
+f235			; set (BC) to the block number on the disk to check. 
+f235			; On return, (D) will contain the original bit position for 
+f235			; this block number and (HL) will point to the address for it. 
+f235			; 
+f235 79			CKBITMAP: LD	A,C		;determine bit number of interest. 
+f236 e6 07			AND	07H		;compute (D)=(E)=(C and 7)+1. 
+f238 3c				INC	A 
+f239 5f				LD	E,A		;save particular bit number. 
+f23a 57				LD	D,A 
+f23b			; 
+f23b			;   compute (BC)=(BC)/8. 
+f23b			; 
+f23b 79				LD	A,C 
+f23c 0f				RRCA			;now shift right 3 bits. 
+f23d 0f				RRCA	 
+f23e 0f				RRCA	 
+f23f e6 1f			AND	1FH		;and clear bits 7,6,5. 
+f241 4f				LD	C,A 
+f242 78				LD	A,B 
+f243 87				ADD	A,A		;now shift (B) into bits 7,6,5. 
+f244 87				ADD	A,A 
+f245 87				ADD	A,A 
+f246 87				ADD	A,A 
+f247 87				ADD	A,A 
+f248 b1				OR	C		;and add in (C). 
+f249 4f				LD	C,A		;ok, (C) ha been completed. 
+f24a 78				LD	A,B		;is there a better way of doing this? 
+f24b 0f				RRCA	 
+f24c 0f				RRCA	 
+f24d 0f				RRCA	 
+f24e e6 1f			AND	1FH 
+f250 47				LD	B,A		;and now (B) is completed. 
+f251			; 
+f251			;   use this as an offset into the disk space allocation 
+f251			; table. 
+f251			; 
+f251 2a bf f9			LD	HL,(ALOCVECT) 
+f254 09				ADD	HL,BC 
+f255 7e				LD	A,(HL)		;now get correct byte. 
+f256 07			CKBMAP1:RLCA			;get correct bit into position 0. 
+f257 1d				DEC	E 
+f258 c2 56 f2			JP	NZ,CKBMAP1 
+f25b c9				RET	 
+f25c			; 
+f25c			;   Set or clear the bit map such that block number (BC) will be marked 
+f25c			; as used. On entry, if (E)=0 then this bit will be cleared, if it equals 
+f25c			; 1 then it will be set (don't use anyother values). 
+f25c			; 
+f25c d5			STBITMAP: PUSH	DE 
+f25d cd 35 f2			CALL	CKBITMAP	;get the byte of interest. 
+f260 e6 fe			AND	0FEH		;clear the affected bit. 
+f262 c1				POP	BC 
+f263 b1				OR	C		;and now set it acording to (C). 
+f264			; 
+f264			;  entry to restore the original bit position and then store 
+f264			; in table. (A) contains the value, (D) contains the bit 
+f264			; position (1-8), and (HL) points to the address within the 
+f264			; space allocation table for this byte. 
+f264			; 
+f264 0f			STBMAP1:RRCA			;restore original bit position. 
+f265 15				DEC	D 
+f266 c2 64 f2			JP	NZ,STBMAP1 
+f269 77				LD	(HL),A		;and stor byte in table. 
+f26a c9				RET	 
+f26b			; 
+f26b			;   Set/clear space used bits in allocation map for this file. 
+f26b			; On entry, (C)=1 to set the map and (C)=0 to clear it. 
+f26b			; 
+f26b cd 5e f1		SETFILE:CALL	FCB2HL		;get address of fcb 
+f26e 11 10 00			LD	DE,16 
+f271 19				ADD	HL,DE		;get to block number bytes. 
+f272 c5				PUSH	BC 
+f273 0e 11			LD	C,17		;check all 17 bytes (max) of table. 
+f275 d1			SETFL1:	POP	DE 
+f276 0d				DEC	C		;done all bytes yet? 
+f277 c8				RET	Z 
+f278 d5				PUSH	DE 
+f279 3a dd f9			LD	A,(BIGDISK)	;check disk size for 16 bit block numbers. 
+f27c b7				OR	A 
+f27d ca 88 f2			JP	Z,SETFL2 
+f280 c5				PUSH	BC		;only 8 bit numbers. set (BC) to this one. 
+f281 e5				PUSH	HL 
+f282 4e				LD	C,(HL)		;get low byte from table, always 
+f283 06 00			LD	B,0		;set high byte to zero. 
+f285 c3 8e f2			JP	SETFL3 
+f288 0d			SETFL2:	DEC	C		;for 16 bit block numbers, adjust counter. 
+f289 c5				PUSH	BC 
+f28a 4e				LD	C,(HL)		;now get both the low and high bytes. 
+f28b 23				INC	HL 
+f28c 46				LD	B,(HL) 
+f28d e5				PUSH	HL 
+f28e 79			SETFL3:	LD	A,C		;block used? 
+f28f b0				OR	B 
+f290 ca 9d f2			JP	Z,SETFL4 
+f293 2a c6 f9			LD	HL,(DSKSIZE)	;is this block number within the 
+f296 7d				LD	A,L		;space on the disk? 
+f297 91				SUB	C 
+f298 7c				LD	A,H 
+f299 98				SBC	A,B 
+f29a d4 5c f2			CALL	NC,STBITMAP	;yes, set the proper bit. 
+f29d e1			SETFL4:	POP	HL		;point to next block number in fcb. 
+f29e 23				INC	HL 
+f29f c1				POP	BC 
+f2a0 c3 75 f2			JP	SETFL1 
+f2a3			; 
+f2a3			;   Construct the space used allocation bit map for the active 
+f2a3			; drive. If a file name starts with '$' and it is under the 
+f2a3			; current user number, then (STATUS) is set to minus 1. Otherwise 
+f2a3			; it is not set at all. 
+f2a3			; 
+f2a3 2a c6 f9		BITMAP:	LD	HL,(DSKSIZE)	;compute size of allocation table. 
+f2a6 0e 03			LD	C,3 
+f2a8 cd ea f0			CALL	SHIFTR		;(HL)=(HL)/8. 
+f2ab 23				INC	HL		;at lease 1 byte. 
+f2ac 44				LD	B,H 
+f2ad 4d				LD	C,L		;set (BC) to the allocation table length. 
+f2ae			; 
+f2ae			;   Initialize the bitmap for this drive. Right now, the first 
+f2ae			; two bytes are specified by the disk parameter block. However 
+f2ae			; a patch could be entered here if it were necessary to setup 
+f2ae			; this table in a special mannor. For example, the bios could 
+f2ae			; determine locations of 'bad blocks' and set them as already 
+f2ae			; 'used' in the map. 
+f2ae			; 
+f2ae 2a bf f9			LD	HL,(ALOCVECT)	;now zero out the table now. 
+f2b1 36 00		BITMAP1:LD	(HL),0 
+f2b3 23				INC	HL 
+f2b4 0b				DEC	BC 
+f2b5 78				LD	A,B 
+f2b6 b1				OR	C 
+f2b7 c2 b1 f2			JP	NZ,BITMAP1 
+f2ba 2a ca f9			LD	HL,(ALLOC0)	;get initial space used by directory. 
+f2bd eb				EX	DE,HL 
+f2be 2a bf f9			LD	HL,(ALOCVECT)	;and put this into map. 
+f2c1 73				LD	(HL),E 
+f2c2 23				INC	HL 
+f2c3 72				LD	(HL),D 
+f2c4			; 
+f2c4			;   End of initialization portion. 
+f2c4			; 
+f2c4 cd a1 ef			CALL	HOMEDRV		;now home the drive. 
+f2c7 2a b3 f9			LD	HL,(SCRATCH1) 
+f2ca 36 03			LD	(HL),3		;force next directory request to read 
+f2cc 23				INC	HL		;in a sector. 
+f2cd 36 00			LD	(HL),0 
+f2cf cd fe f1			CALL	STFILPOS	;clear initial file position also. 
+f2d2 0e ff		BITMAP2:LD	C,0FFH		;read next file name in directory 
+f2d4 cd 05 f2			CALL	NXENTRY		;and set checksum byte. 
+f2d7 cd f5 f1			CALL	CKFILPOS	;is there another file? 
+f2da c8				RET	Z 
+f2db cd 5e f1			CALL	FCB2HL		;yes, get its address. 
+f2de 3e e5			LD	A,0E5H 
+f2e0 be				CP	(HL)		;empty file entry? 
+f2e1 ca d2 f2			JP	Z,BITMAP2 
+f2e4 3a 41 ef			LD	A,(USERNO)	;no, correct user number? 
+f2e7 be				CP	(HL) 
+f2e8 c2 f6 f2			JP	NZ,BITMAP3 
+f2eb 23				INC	HL 
+f2ec 7e				LD	A,(HL)		;yes, does name start with a '$'? 
+f2ed d6 24			SUB	'$' 
+f2ef c2 f6 f2			JP	NZ,BITMAP3 
+f2f2 3d				DEC	A		;yes, set atatus to minus one. 
+f2f3 32 45 ef			LD	(STATUS),A 
+f2f6 0e 01		BITMAP3:LD	C,1		;now set this file's space as used in bit map. 
+f2f8 cd 6b f2			CALL	SETFILE 
+f2fb cd 8c f1			CALL	CHKNMBR		;keep (SCRATCH1) in bounds. 
+f2fe c3 d2 f2			JP	BITMAP2 
+f301			; 
+f301			;   Set the status (STATUS) and return. 
+f301			; 
+f301 3a d4 f9		STSTATUS: LD	A,(FNDSTAT) 
+f304 c3 01 ef			JP	SETSTAT 
+f307			; 
+f307			;   Check extents in (A) and (C). Set the zero flag if they 
+f307			; are the same. The number of 16k chunks of disk space that 
+f307			; the directory extent covers is expressad is (EXTMASK+1). 
+f307			; No registers are modified. 
+f307			; 
+f307 c5			SAMEXT:	PUSH	BC 
+f308 f5				PUSH	AF 
+f309 3a c5 f9			LD	A,(EXTMASK)	;get extent mask and use it to 
+f30c 2f				CPL			;to compare both extent numbers. 
+f30d 47				LD	B,A		;save resulting mask here. 
+f30e 79				LD	A,C		;mask first extent and save in (C). 
+f30f a0				AND	B 
+f310 4f				LD	C,A 
+f311 f1				POP	AF		;now mask second extent and compare 
+f312 a0				AND	B		;with the first one. 
+f313 91				SUB	C 
+f314 e6 1f			AND	1FH		;(* only check buts 0-4 *) 
+f316 c1				POP	BC		;the zero flag is set if they are the same. 
+f317 c9				RET			;restore (BC) and return. 
+f318			; 
+f318			;   Search for the first occurence of a file name. On entry, 
+f318			; register (C) should contain the number of bytes of the fcb 
+f318			; that must match. 
+f318			; 
+f318 3e ff		FINDFST:LD	A,0FFH 
+f31a 32 d4 f9			LD	(FNDSTAT),A 
+f31d 21 d8 f9			LD	HL,COUNTER	;save character count. 
+f320 71				LD	(HL),C 
+f321 2a 43 ef			LD	HL,(PARAMS)	;get filename to match. 
+f324 22 d9 f9			LD	(SAVEFCB),HL	;and save. 
+f327 cd fe f1			CALL	STFILPOS	;clear initial file position (set to 0ffffh). 
+f32a cd a1 ef			CALL	HOMEDRV		;home the drive. 
+f32d			; 
+f32d			;   Entry to locate the next occurence of a filename within the 
+f32d			; directory. The disk is not expected to have been changed. If 
+f32d			; it was, then it will be write protected. 
+f32d			; 
+f32d 0e 00		FINDNXT:LD	C,0		;write protect the disk if changed. 
+f32f cd 05 f2			CALL	NXENTRY		;get next filename entry in directory. 
+f332 cd f5 f1			CALL	CKFILPOS	;is file position = 0ffffh? 
+f335 ca 94 f3			JP	Z,FNDNXT6	;yes, exit now then. 
+f338 2a d9 f9			LD	HL,(SAVEFCB)	;set (DE) pointing to filename to match. 
+f33b eb				EX	DE,HL 
+f33c 1a				LD	A,(DE) 
+f33d fe e5			CP	0E5H		;empty directory entry? 
+f33f ca 4a f3			JP	Z,FNDNXT1	;(* are we trying to reserect erased entries? *) 
+f342 d5				PUSH	DE 
+f343 cd 7f f1			CALL	MOREFLS		;more files in directory? 
+f346 d1				POP	DE 
+f347 d2 94 f3			JP	NC,FNDNXT6	;no more. Exit now. 
+f34a cd 5e f1		FNDNXT1:CALL	FCB2HL		;get address of this fcb in directory. 
+f34d 3a d8 f9			LD	A,(COUNTER)	;get number of bytes (characters) to check. 
+f350 4f				LD	C,A 
+f351 06 00			LD	B,0		;initialize byte position counter. 
+f353 79			FNDNXT2:LD	A,C		;are we done with the compare? 
+f354 b7				OR	A 
+f355 ca 83 f3			JP	Z,FNDNXT5 
+f358 1a				LD	A,(DE)		;no, check next byte. 
+f359 fe 3f			CP	'?'		;don't care about this character? 
+f35b ca 7c f3			JP	Z,FNDNXT4 
+f35e 78				LD	A,B		;get bytes position in fcb. 
+f35f fe 0d			CP	13		;don't care about the thirteenth byte either. 
+f361 ca 7c f3			JP	Z,FNDNXT4 
+f364 fe 0c			CP	12		;extent byte? 
+f366 1a				LD	A,(DE) 
+f367 ca 73 f3			JP	Z,FNDNXT3 
+f36a 96				SUB	(HL)		;otherwise compare characters. 
+f36b e6 7f			AND	7FH 
+f36d c2 2d f3			JP	NZ,FINDNXT	;not the same, check next entry. 
+f370 c3 7c f3			JP	FNDNXT4		;so far so good, keep checking. 
+f373 c5			FNDNXT3:PUSH	BC		;check the extent byte here. 
+f374 4e				LD	C,(HL) 
+f375 cd 07 f3			CALL	SAMEXT 
+f378 c1				POP	BC 
+f379 c2 2d f3			JP	NZ,FINDNXT	;not the same, look some more. 
+f37c			; 
+f37c			;   So far the names compare. Bump pointers to the next byte 
+f37c			; and continue until all (C) characters have been checked. 
+f37c			; 
+f37c 13			FNDNXT4:INC	DE		;bump pointers. 
+f37d 23				INC	HL 
+f37e 04				INC	B 
+f37f 0d				DEC	C		;adjust character counter. 
+f380 c3 53 f3			JP	FNDNXT2 
+f383 3a ea f9		FNDNXT5:LD	A,(FILEPOS)	;return the position of this entry. 
+f386 e6 03			AND	03H 
+f388 32 45 ef			LD	(STATUS),A 
+f38b 21 d4 f9			LD	HL,FNDSTAT 
+f38e 7e				LD	A,(HL) 
+f38f 17				RLA	 
+f390 d0				RET	NC 
+f391 af				XOR	A 
+f392 77				LD	(HL),A 
+f393 c9				RET	 
+f394			; 
+f394			;   Filename was not found. Set appropriate status. 
+f394			; 
+f394 cd fe f1		FNDNXT6:CALL	STFILPOS	;set (FILEPOS) to 0ffffh. 
+f397 3e ff			LD	A,0FFH		;say not located. 
+f399 c3 01 ef			JP	SETSTAT 
+f39c			; 
+f39c			;   Erase files from the directory. Only the first byte of the 
+f39c			; fcb will be affected. It is set to (E5). 
+f39c			; 
+f39c cd 54 f1		ERAFILE:CALL	CHKWPRT		;is disk write protected? 
+f39f 0e 0c			LD	C,12		;only compare file names. 
+f3a1 cd 18 f3			CALL	FINDFST		;get first file name. 
+f3a4 cd f5 f1		ERAFIL1:CALL	CKFILPOS	;any found? 
+f3a7 c8				RET	Z		;nope, we must be done. 
+f3a8 cd 44 f1			CALL	CHKROFL		;is file read only? 
+f3ab cd 5e f1			CALL	FCB2HL		;nope, get address of fcb and 
+f3ae 36 e5			LD	(HL),0E5H	;set first byte to 'empty'. 
+f3b0 0e 00			LD	C,0		;clear the space from the bit map. 
+f3b2 cd 6b f2			CALL	SETFILE 
+f3b5 cd c6 f1			CALL	DIRWRITE	;now write the directory sector back out. 
+f3b8 cd 2d f3			CALL	FINDNXT		;find the next file name. 
+f3bb c3 a4 f3			JP	ERAFIL1		;and repeat process. 
+f3be			; 
+f3be			;   Look through the space allocation map (bit map) for the 
+f3be			; next available block. Start searching at block number (BC-1). 
+f3be			; The search procedure is to look for an empty block that is 
+f3be			; before the starting block. If not empty, look at a later 
+f3be			; block number. In this way, we return the closest empty block 
+f3be			; on either side of the 'target' block number. This will speed 
+f3be			; access on random devices. For serial devices, this should be 
+f3be			; changed to look in the forward direction first and then start 
+f3be			; at the front and search some more. 
+f3be			; 
+f3be			;   On return, (DE)= block number that is empty and (HL) =0 
+f3be			; if no empry block was found. 
+f3be			; 
+f3be 50			FNDSPACE: LD	D,B		;set (DE) as the block that is checked. 
+f3bf 59				LD	E,C 
+f3c0			; 
+f3c0			;   Look before target block. Registers (BC) are used as the lower 
+f3c0			; pointer and (DE) as the upper pointer. 
+f3c0			; 
+f3c0 79			FNDSPA1:LD	A,C		;is block 0 specified? 
+f3c1 b0				OR	B 
+f3c2 ca d1 f3			JP	Z,FNDSPA2 
+f3c5 0b				DEC	BC		;nope, check previous block. 
+f3c6 d5				PUSH	DE 
+f3c7 c5				PUSH	BC 
+f3c8 cd 35 f2			CALL	CKBITMAP 
+f3cb 1f				RRA			;is this block empty? 
+f3cc d2 ec f3			JP	NC,FNDSPA3	;yes. use this. 
+f3cf			; 
+f3cf			;   Note that the above logic gets the first block that it finds 
+f3cf			; that is empty. Thus a file could be written 'backward' making 
+f3cf			; it very slow to access. This could be changed to look for the 
+f3cf			; first empty block and then continue until the start of this 
+f3cf			; empty space is located and then used that starting block. 
+f3cf			; This should help speed up access to some files especially on 
+f3cf			; a well used disk with lots of fairly small 'holes'. 
+f3cf			; 
+f3cf c1				POP	BC		;nope, check some more. 
+f3d0 d1				POP	DE 
+f3d1			; 
+f3d1			;   Now look after target block. 
+f3d1			; 
+f3d1 2a c6 f9		FNDSPA2:LD	HL,(DSKSIZE)	;is block (DE) within disk limits? 
+f3d4 7b				LD	A,E 
+f3d5 95				SUB	L 
+f3d6 7a				LD	A,D 
+f3d7 9c				SBC	A,H 
+f3d8 d2 f4 f3			JP	NC,FNDSPA4 
+f3db 13				INC	DE		;yes, move on to next one. 
+f3dc c5				PUSH	BC 
+f3dd d5				PUSH	DE 
+f3de 42				LD	B,D 
+f3df 4b				LD	C,E 
+f3e0 cd 35 f2			CALL	CKBITMAP	;check it. 
+f3e3 1f				RRA			;empty? 
+f3e4 d2 ec f3			JP	NC,FNDSPA3 
+f3e7 d1				POP	DE		;nope, continue searching. 
+f3e8 c1				POP	BC 
+f3e9 c3 c0 f3			JP	FNDSPA1 
+f3ec			; 
+f3ec			;   Empty block found. Set it as used and return with (HL) 
+f3ec			; pointing to it (true?). 
+f3ec			; 
+f3ec 17			FNDSPA3:RLA			;reset byte. 
+f3ed 3c				INC	A		;and set bit 0. 
+f3ee cd 64 f2			CALL	STBMAP1		;update bit map. 
+f3f1 e1				POP	HL		;set return registers. 
+f3f2 d1				POP	DE 
+f3f3 c9				RET	 
+f3f4			; 
+f3f4			;   Free block was not found. If (BC) is not zero, then we have 
+f3f4			; not checked all of the disk space. 
+f3f4			; 
+f3f4 79			FNDSPA4:LD	A,C 
+f3f5 b0				OR	B 
+f3f6 c2 c0 f3			JP	NZ,FNDSPA1 
+f3f9 21 00 00			LD	HL,0		;set 'not found' status. 
+f3fc c9				RET	 
+f3fd			; 
+f3fd			;   Move a complete fcb entry into the directory and write it. 
+f3fd			; 
+f3fd 0e 00		FCBSET:	LD	C,0 
+f3ff 1e 20			LD	E,32		;length of each entry. 
+f401			; 
+f401			;   Move (E) bytes from the fcb pointed to by (PARAMS) into 
+f401			; fcb in directory starting at relative byte (C). This updated 
+f401			; directory buffer is then written to the disk. 
+f401			; 
+f401 d5			UPDATE:	PUSH	DE 
+f402 06 00			LD	B,0		;set (BC) to relative byte position. 
+f404 2a 43 ef			LD	HL,(PARAMS)	;get address of fcb. 
+f407 09				ADD	HL,BC		;compute starting byte. 
+f408 eb				EX	DE,HL 
+f409 cd 5e f1			CALL	FCB2HL		;get address of fcb to update in directory. 
+f40c c1				POP	BC		;set (C) to number of bytes to change. 
+f40d cd 4f ef			CALL	DE2HL 
+f410 cd c3 ef		UPDATE1:CALL	TRKSEC		;determine the track and sector affected. 
+f413 c3 c6 f1			JP	DIRWRITE	;then write this sector out. 
+f416			; 
+f416			;   Routine to change the name of all files on the disk with a 
+f416			; specified name. The fcb contains the current name as the 
+f416			; first 12 characters and the new name 16 bytes into the fcb. 
+f416			; 
+f416 cd 54 f1		CHGNAMES: CALL	CHKWPRT		;check for a write protected disk. 
+f419 0e 0c			LD	C,12		;match first 12 bytes of fcb only. 
+f41b cd 18 f3			CALL	FINDFST		;get first name. 
+f41e 2a 43 ef			LD	HL,(PARAMS)	;get address of fcb. 
+f421 7e				LD	A,(HL)		;get user number. 
+f422 11 10 00			LD	DE,16		;move over to desired name. 
+f425 19				ADD	HL,DE 
+f426 77				LD	(HL),A		;keep same user number. 
+f427 cd f5 f1		CHGNAM1:CALL	CKFILPOS	;any matching file found? 
+f42a c8				RET	Z		;no, we must be done. 
+f42b cd 44 f1			CALL	CHKROFL		;check for read only file. 
+f42e 0e 10			LD	C,16		;start 16 bytes into fcb. 
+f430 1e 0c			LD	E,12		;and update the first 12 bytes of directory. 
+f432 cd 01 f4			CALL	UPDATE 
+f435 cd 2d f3			CALL	FINDNXT		;get te next file name. 
+f438 c3 27 f4			JP	CHGNAM1		;and continue. 
+f43b			; 
+f43b			;   Update a files attributes. The procedure is to search for 
+f43b			; every file with the same name as shown in fcb (ignoring bit 7) 
+f43b			; and then to update it (which includes bit 7). No other changes 
+f43b			; are made. 
+f43b			; 
+f43b 0e 0c		SAVEATTR: LD	C,12		;match first 12 bytes. 
+f43d cd 18 f3			CALL	FINDFST		;look for first filename. 
+f440 cd f5 f1		SAVATR1:CALL	CKFILPOS	;was one found? 
+f443 c8				RET	Z		;nope, we must be done. 
+f444 0e 00			LD	C,0		;yes, update the first 12 bytes now. 
+f446 1e 0c			LD	E,12 
+f448 cd 01 f4			CALL	UPDATE		;update filename and write directory. 
+f44b cd 2d f3			CALL	FINDNXT		;and get the next file. 
+f44e c3 40 f4			JP	SAVATR1		;then continue until done. 
+f451			; 
+f451			;  Open a file (name specified in fcb). 
+f451			; 
+f451 0e 0f		OPENIT:	LD	C,15		;compare the first 15 bytes. 
+f453 cd 18 f3			CALL	FINDFST		;get the first one in directory. 
+f456 cd f5 f1			CALL	CKFILPOS	;any at all? 
+f459 c8				RET	Z 
+f45a cd a6 f0		OPENIT1:CALL	SETEXT		;point to extent byte within users fcb. 
+f45d 7e				LD	A,(HL)		;and get it. 
+f45e f5				PUSH	AF		;save it and address. 
+f45f e5				PUSH	HL 
+f460 cd 5e f1			CALL	FCB2HL		;point to fcb in directory. 
+f463 eb				EX	DE,HL 
+f464 2a 43 ef			LD	HL,(PARAMS)	;this is the users copy. 
+f467 0e 20			LD	C,32		;move it into users space. 
+f469 d5				PUSH	DE 
+f46a cd 4f ef			CALL	DE2HL 
+f46d cd 78 f1			CALL	SETS2B7		;set bit 7 in 's2' byte (unmodified). 
+f470 d1				POP	DE		;now get the extent byte from this fcb. 
+f471 21 0c 00			LD	HL,12 
+f474 19				ADD	HL,DE 
+f475 4e				LD	C,(HL)		;into (C). 
+f476 21 0f 00			LD	HL,15		;now get the record count byte into (B). 
+f479 19				ADD	HL,DE 
+f47a 46				LD	B,(HL) 
+f47b e1				POP	HL		;keep the same extent as the user had originally. 
+f47c f1				POP	AF 
+f47d 77				LD	(HL),A 
+f47e 79				LD	A,C		;is it the same as in the directory fcb? 
+f47f be				CP	(HL) 
+f480 78				LD	A,B		;if yes, then use the same record count. 
+f481 ca 8b f4			JP	Z,OPENIT2 
+f484 3e 00			LD	A,0		;if the user specified an extent greater than 
+f486 da 8b f4			JP	C,OPENIT2	;the one in the directory, then set record count to 0. 
+f489 3e 80			LD	A,128		;otherwise set to maximum. 
+f48b 2a 43 ef		OPENIT2:LD	HL,(PARAMS)	;set record count in users fcb to (A). 
+f48e 11 0f 00			LD	DE,15 
+f491 19				ADD	HL,DE		;compute relative position. 
+f492 77				LD	(HL),A		;and set the record count. 
+f493 c9				RET	 
+f494			; 
+f494			;   Move two bytes from (DE) to (HL) if (and only if) (HL) 
+f494			; point to a zero value (16 bit). 
+f494			;   Return with zero flag set it (DE) was moved. Registers (DE) 
+f494			; and (HL) are not changed. However (A) is. 
+f494			; 
+f494 7e			MOVEWORD: LD	A,(HL)		;check for a zero word. 
+f495 23				INC	HL 
+f496 b6				OR	(HL)		;both bytes zero? 
+f497 2b				DEC	HL 
+f498 c0				RET	NZ		;nope, just return. 
+f499 1a				LD	A,(DE)		;yes, move two bytes from (DE) into 
+f49a 77				LD	(HL),A		;this zero space. 
+f49b 13				INC	DE 
+f49c 23				INC	HL 
+f49d 1a				LD	A,(DE) 
+f49e 77				LD	(HL),A 
+f49f 1b				DEC	DE		;don't disturb these registers. 
+f4a0 2b				DEC	HL 
+f4a1 c9				RET	 
+f4a2			; 
+f4a2			;   Get here to close a file specified by (fcb). 
+f4a2			; 
+f4a2 af			CLOSEIT:XOR	A		;clear status and file position bytes. 
+f4a3 32 45 ef			LD	(STATUS),A 
+f4a6 32 ea f9			LD	(FILEPOS),A 
+f4a9 32 eb f9			LD	(FILEPOS+1),A 
+f4ac cd 1e f1			CALL	GETWPRT		;get write protect bit for this drive. 
+f4af c0				RET	NZ		;just return if it is set. 
+f4b0 cd 69 f1			CALL	GETS2		;else get the 's2' byte. 
+f4b3 e6 80			AND	80H		;and look at bit 7 (file unmodified?). 
+f4b5 c0				RET	NZ		;just return if set. 
+f4b6 0e 0f			LD	C,15		;else look up this file in directory. 
+f4b8 cd 18 f3			CALL	FINDFST 
+f4bb cd f5 f1			CALL	CKFILPOS	;was it found? 
+f4be c8				RET	Z		;just return if not. 
+f4bf 01 10 00			LD	BC,16		;set (HL) pointing to records used section. 
+f4c2 cd 5e f1			CALL	FCB2HL 
+f4c5 09				ADD	HL,BC 
+f4c6 eb				EX	DE,HL 
+f4c7 2a 43 ef			LD	HL,(PARAMS)	;do the same for users specified fcb. 
+f4ca 09				ADD	HL,BC 
+f4cb 0e 10			LD	C,16		;this many bytes are present in this extent. 
+f4cd 3a dd f9		CLOSEIT1: LD	A,(BIGDISK)	;8 or 16 bit record numbers? 
+f4d0 b7				OR	A 
+f4d1 ca e8 f4			JP	Z,CLOSEIT4 
+f4d4 7e				LD	A,(HL)		;just 8 bit. Get one from users fcb. 
+f4d5 b7				OR	A 
+f4d6 1a				LD	A,(DE)		;now get one from directory fcb. 
+f4d7 c2 db f4			JP	NZ,CLOSEIT2 
+f4da 77				LD	(HL),A		;users byte was zero. Update from directory. 
+f4db b7			CLOSEIT2: OR	A 
+f4dc c2 e1 f4			JP	NZ,CLOSEIT3 
+f4df 7e				LD	A,(HL)		;directories byte was zero, update from users fcb. 
+f4e0 12				LD	(DE),A 
+f4e1 be			CLOSEIT3: CP	(HL)		;if neither one of these bytes were zero, 
+f4e2 c2 1f f5			JP	NZ,CLOSEIT7	;then close error if they are not the same. 
+f4e5 c3 fd f4			JP	CLOSEIT5	;ok so far, get to next byte in fcbs. 
+f4e8 cd 94 f4		CLOSEIT4: CALL	MOVEWORD	;update users fcb if it is zero. 
+f4eb eb				EX	DE,HL 
+f4ec cd 94 f4			CALL	MOVEWORD	;update directories fcb if it is zero. 
+f4ef eb				EX	DE,HL 
+f4f0 1a				LD	A,(DE)		;if these two values are no different, 
+f4f1 be				CP	(HL)		;then a close error occured. 
+f4f2 c2 1f f5			JP	NZ,CLOSEIT7 
+f4f5 13				INC	DE		;check second byte. 
+f4f6 23				INC	HL 
+f4f7 1a				LD	A,(DE) 
+f4f8 be				CP	(HL) 
+f4f9 c2 1f f5			JP	NZ,CLOSEIT7 
+f4fc 0d				DEC	C		;remember 16 bit values. 
+f4fd 13			CLOSEIT5: INC	DE		;bump to next item in table. 
+f4fe 23				INC	HL 
+f4ff 0d				DEC	C		;there are 16 entries only. 
+f500 c2 cd f4			JP	NZ,CLOSEIT1	;continue if more to do. 
+f503 01 ec ff			LD	BC,0FFECH	;backup 20 places (extent byte). 
+f506 09				ADD	HL,BC 
+f507 eb				EX	DE,HL 
+f508 09				ADD	HL,BC 
+f509 1a				LD	A,(DE) 
+f50a be				CP	(HL)		;directory's extent already greater than the 
+f50b da 17 f5			JP	C,CLOSEIT6	;users extent? 
+f50e 77				LD	(HL),A		;no, update directory extent. 
+f50f 01 03 00			LD	BC,3		;and update the record count byte in 
+f512 09				ADD	HL,BC		;directories fcb. 
+f513 eb				EX	DE,HL 
+f514 09				ADD	HL,BC 
+f515 7e				LD	A,(HL)		;get from user. 
+f516 12				LD	(DE),A		;and put in directory. 
+f517 3e ff		CLOSEIT6: LD	A,0FFH		;set 'was open and is now closed' byte. 
+f519 32 d2 f9			LD	(CLOSEFLG),A 
+f51c c3 10 f4			JP	UPDATE1		;update the directory now. 
+f51f 21 45 ef		CLOSEIT7: LD	HL,STATUS	;set return status and then return. 
+f522 35				DEC	(HL) 
+f523 c9				RET	 
+f524			; 
+f524			;   Routine to get the next empty space in the directory. It 
+f524			; will then be cleared for use. 
+f524			; 
+f524 cd 54 f1		GETEMPTY: CALL	CHKWPRT		;make sure disk is not write protected. 
+f527 2a 43 ef			LD	HL,(PARAMS)	;save current parameters (fcb). 
+f52a e5				PUSH	HL 
+f52b 21 ac f9			LD	HL,EMPTYFCB	;use special one for empty space. 
+f52e 22 43 ef			LD	(PARAMS),HL 
+f531 0e 01			LD	C,1		;search for first empty spot in directory. 
+f533 cd 18 f3			CALL	FINDFST		;(* only check first byte *) 
+f536 cd f5 f1			CALL	CKFILPOS	;none? 
+f539 e1				POP	HL 
+f53a 22 43 ef			LD	(PARAMS),HL	;restore original fcb address. 
+f53d c8				RET	Z		;return if no more space. 
+f53e eb				EX	DE,HL 
+f53f 21 0f 00			LD	HL,15		;point to number of records for this file. 
+f542 19				ADD	HL,DE 
+f543 0e 11			LD	C,17		;and clear all of this space. 
+f545 af				XOR	A 
+f546 77			GETMT1:	LD	(HL),A 
+f547 23				INC	HL 
+f548 0d				DEC	C 
+f549 c2 46 f5			JP	NZ,GETMT1 
+f54c 21 0d 00			LD	HL,13		;clear the 's1' byte also. 
+f54f 19				ADD	HL,DE 
+f550 77				LD	(HL),A 
+f551 cd 8c f1			CALL	CHKNMBR		;keep (SCRATCH1) within bounds. 
+f554 cd fd f3			CALL	FCBSET		;write out this fcb entry to directory. 
+f557 c3 78 f1			JP	SETS2B7		;set 's2' byte bit 7 (unmodified at present). 
+f55a			; 
+f55a			;   Routine to close the current extent and open the next one 
+f55a			; for reading. 
+f55a			; 
+f55a af			GETNEXT:XOR	A 
+f55b 32 d2 f9			LD	(CLOSEFLG),A	;clear close flag. 
+f55e cd a2 f4			CALL	CLOSEIT		;close this extent. 
+f561 cd f5 f1			CALL	CKFILPOS 
+f564 c8				RET	Z		;not there??? 
+f565 2a 43 ef			LD	HL,(PARAMS)	;get extent byte. 
+f568 01 0c 00			LD	BC,12 
+f56b 09				ADD	HL,BC 
+f56c 7e				LD	A,(HL)		;and increment it. 
+f56d 3c				INC	A 
+f56e e6 1f			AND	1FH		;keep within range 0-31. 
+f570 77				LD	(HL),A 
+f571 ca 83 f5			JP	Z,GTNEXT1	;overflow? 
+f574 47				LD	B,A		;mask extent byte. 
+f575 3a c5 f9			LD	A,(EXTMASK) 
+f578 a0				AND	B 
+f579 21 d2 f9			LD	HL,CLOSEFLG	;check close flag (0ffh is ok). 
+f57c a6				AND	(HL) 
+f57d ca 8e f5			JP	Z,GTNEXT2	;if zero, we must read in next extent. 
+f580 c3 ac f5			JP	GTNEXT3		;else, it is already in memory. 
+f583 01 02 00		GTNEXT1:LD	BC,2		;Point to the 's2' byte. 
+f586 09				ADD	HL,BC 
+f587 34				INC	(HL)		;and bump it. 
+f588 7e				LD	A,(HL)		;too many extents? 
+f589 e6 0f			AND	0FH 
+f58b ca b6 f5			JP	Z,GTNEXT5	;yes, set error code. 
+f58e			; 
+f58e			;   Get here to open the next extent. 
+f58e			; 
+f58e 0e 0f		GTNEXT2:LD	C,15		;set to check first 15 bytes of fcb. 
+f590 cd 18 f3			CALL	FINDFST		;find the first one. 
+f593 cd f5 f1			CALL	CKFILPOS	;none available? 
+f596 c2 ac f5			JP	NZ,GTNEXT3 
+f599 3a d3 f9			LD	A,(RDWRTFLG)	;no extent present. Can we open an empty one? 
+f59c 3c				INC	A		;0ffh means reading (so not possible). 
+f59d ca b6 f5			JP	Z,GTNEXT5	;or an error. 
+f5a0 cd 24 f5			CALL	GETEMPTY	;we are writing, get an empty entry. 
+f5a3 cd f5 f1			CALL	CKFILPOS	;none? 
+f5a6 ca b6 f5			JP	Z,GTNEXT5	;error if true. 
+f5a9 c3 af f5			JP	GTNEXT4		;else we are almost done. 
+f5ac cd 5a f4		GTNEXT3:CALL	OPENIT1		;open this extent. 
+f5af cd bb f0		GTNEXT4:CALL	STRDATA		;move in updated data (rec #, extent #, etc.) 
+f5b2 af				XOR	A		;clear status and return. 
+f5b3 c3 01 ef			JP	SETSTAT 
+f5b6			; 
+f5b6			;   Error in extending the file. Too many extents were needed 
+f5b6			; or not enough space on the disk. 
+f5b6			; 
+f5b6 cd 05 ef		GTNEXT5:CALL	IOERR1		;set error code, clear bit 7 of 's2' 
+f5b9 c3 78 f1			JP	SETS2B7		;so this is not written on a close. 
+f5bc			; 
+f5bc			;   Read a sequential file. 
+f5bc			; 
+f5bc 3e 01		RDSEQ:	LD	A,1		;set sequential access mode. 
+f5be 32 d5 f9			LD	(MODE),A 
+f5c1 3e ff		RDSEQ1:	LD	A,0FFH		;don't allow reading unwritten space. 
+f5c3 32 d3 f9			LD	(RDWRTFLG),A 
+f5c6 cd bb f0			CALL	STRDATA		;put rec# and ext# into fcb. 
+f5c9 3a e3 f9			LD	A,(SAVNREC)	;get next record to read. 
+f5cc 21 e1 f9			LD	HL,SAVNXT	;get number of records in extent. 
+f5cf be				CP	(HL)		;within this extent? 
+f5d0 da e6 f5			JP	C,RDSEQ2 
+f5d3 fe 80			CP	128		;no. Is this extent fully used? 
+f5d5 c2 fb f5			JP	NZ,RDSEQ3	;no. End-of-file. 
+f5d8 cd 5a f5			CALL	GETNEXT		;yes, open the next one. 
+f5db af				XOR	A		;reset next record to read. 
+f5dc 32 e3 f9			LD	(SAVNREC),A 
+f5df 3a 45 ef			LD	A,(STATUS)	;check on open, successful? 
+f5e2 b7				OR	A 
+f5e3 c2 fb f5			JP	NZ,RDSEQ3	;no, error. 
+f5e6 cd 77 f0		RDSEQ2:	CALL	COMBLK		;ok. compute block number to read. 
+f5e9 cd 84 f0			CALL	CHKBLK		;check it. Within bounds? 
+f5ec ca fb f5			JP	Z,RDSEQ3	;no, error. 
+f5ef cd 8a f0			CALL	LOGICAL		;convert (BLKNMBR) to logical sector (128 byte). 
+f5f2 cd d1 ef			CALL	TRKSEC1		;set the track and sector for this block #. 
+f5f5 cd b2 ef			CALL	DOREAD		;and read it. 
+f5f8 c3 d2 f0			JP	SETNREC		;and set the next record to be accessed. 
+f5fb			; 
+f5fb			;   Read error occured. Set status and return. 
+f5fb			; 
+f5fb c3 05 ef		RDSEQ3:	JP	IOERR1 
+f5fe			; 
+f5fe			;   Write the next sequential record. 
+f5fe			; 
+f5fe 3e 01		WTSEQ:	LD	A,1		;set sequential access mode. 
+f600 32 d5 f9			LD	(MODE),A 
+f603 3e 00		WTSEQ1:	LD	A,0		;allow an addition empty extent to be opened. 
+f605 32 d3 f9			LD	(RDWRTFLG),A 
+f608 cd 54 f1			CALL	CHKWPRT		;check write protect status. 
+f60b 2a 43 ef			LD	HL,(PARAMS) 
+f60e cd 47 f1			CALL	CKROF1		;check for read only file, (HL) already set to fcb. 
+f611 cd bb f0			CALL	STRDATA		;put updated data into fcb. 
+f614 3a e3 f9			LD	A,(SAVNREC)	;get record number to write. 
+f617 fe 80			CP	128		;within range? 
+f619 d2 05 ef			JP	NC,IOERR1	;no, error(?). 
+f61c cd 77 f0			CALL	COMBLK		;compute block number. 
+f61f cd 84 f0			CALL	CHKBLK		;check number. 
+f622 0e 00			LD	C,0		;is there one to write to? 
+f624 c2 6e f6			JP	NZ,WTSEQ6	;yes, go do it. 
+f627 cd 3e f0			CALL	GETBLOCK	;get next block number within fcb to use. 
+f62a 32 d7 f9			LD	(RELBLOCK),A	;and save. 
+f62d 01 00 00			LD	BC,0		;start looking for space from the start 
+f630 b7				OR	A		;if none allocated as yet. 
+f631 ca 3b f6			JP	Z,WTSEQ2 
+f634 4f				LD	C,A		;extract previous block number from fcb 
+f635 0b				DEC	BC		;so we can be closest to it. 
+f636 cd 5e f0			CALL	EXTBLK 
+f639 44				LD	B,H 
+f63a 4d				LD	C,L 
+f63b cd be f3		WTSEQ2:	CALL	FNDSPACE	;find the next empty block nearest number (BC). 
+f63e 7d				LD	A,L		;check for a zero number. 
+f63f b4				OR	H 
+f640 c2 48 f6			JP	NZ,WTSEQ3 
+f643 3e 02			LD	A,2		;no more space? 
+f645 c3 01 ef			JP	SETSTAT 
+f648 22 e5 f9		WTSEQ3:	LD	(BLKNMBR),HL	;save block number to access. 
+f64b eb				EX	DE,HL		;put block number into (DE). 
+f64c 2a 43 ef			LD	HL,(PARAMS)	;now we must update the fcb for this 
+f64f 01 10 00			LD	BC,16		;newly allocated block. 
+f652 09				ADD	HL,BC 
+f653 3a dd f9			LD	A,(BIGDISK)	;8 or 16 bit block numbers? 
+f656 b7				OR	A 
+f657 3a d7 f9			LD	A,(RELBLOCK)	;(* update this entry *) 
+f65a ca 64 f6			JP	Z,WTSEQ4	;zero means 16 bit ones. 
+f65d cd 64 f1			CALL	ADDA2HL		;(HL)=(HL)+(A) 
+f660 73				LD	(HL),E		;store new block number. 
+f661 c3 6c f6			JP	WTSEQ5 
+f664 4f			WTSEQ4:	LD	C,A		;compute spot in this 16 bit table. 
+f665 06 00			LD	B,0 
+f667 09				ADD	HL,BC 
+f668 09				ADD	HL,BC 
+f669 73				LD	(HL),E		;stuff block number (DE) there. 
+f66a 23				INC	HL 
+f66b 72				LD	(HL),D 
+f66c 0e 02		WTSEQ5:	LD	C,2		;set (C) to indicate writing to un-used disk space. 
+f66e 3a 45 ef		WTSEQ6:	LD	A,(STATUS)	;are we ok so far? 
+f671 b7				OR	A 
+f672 c0				RET	NZ 
+f673 c5				PUSH	BC		;yes, save write flag for bios (register C). 
+f674 cd 8a f0			CALL	LOGICAL		;convert (BLKNMBR) over to loical sectors. 
+f677 3a d5 f9			LD	A,(MODE)	;get access mode flag (1=sequential, 
+f67a 3d				DEC	A		;0=random, 2=special?). 
+f67b 3d				DEC	A 
+f67c c2 bb f6			JP	NZ,WTSEQ9 
+f67f			; 
+f67f			;   Special random i/o from function #40. Maybe for M/PM, but the 
+f67f			; current block, if it has not been written to, will be zeroed 
+f67f			; out and then written (reason?). 
+f67f			; 
+f67f c1				POP	BC 
+f680 c5				PUSH	BC 
+f681 79				LD	A,C		;get write status flag (2=writing unused space). 
+f682 3d				DEC	A 
+f683 3d				DEC	A 
+f684 c2 bb f6			JP	NZ,WTSEQ9 
+f687 e5				PUSH	HL 
+f688 2a b9 f9			LD	HL,(DIRBUF)	;zero out the directory buffer. 
+f68b 57				LD	D,A		;note that (A) is zero here. 
+f68c 77			WTSEQ7:	LD	(HL),A 
+f68d 23				INC	HL 
+f68e 14				INC	D		;do 128 bytes. 
+f68f f2 8c f6			JP	P,WTSEQ7 
+f692 cd e0 f1			CALL	DIRDMA		;tell the bios the dma address for directory access. 
+f695 2a e7 f9			LD	HL,(LOGSECT)	;get sector that starts current block. 
+f698 0e 02			LD	C,2		;set 'writing to unused space' flag. 
+f69a 22 e5 f9		WTSEQ8:	LD	(BLKNMBR),HL	;save sector to write. 
+f69d c5				PUSH	BC 
+f69e cd d1 ef			CALL	TRKSEC1		;determine its track and sector numbers. 
+f6a1 c1				POP	BC 
+f6a2 cd b8 ef			CALL	DOWRITE		;now write out 128 bytes of zeros. 
+f6a5 2a e5 f9			LD	HL,(BLKNMBR)	;get sector number. 
+f6a8 0e 00			LD	C,0		;set normal write flag. 
+f6aa 3a c4 f9			LD	A,(BLKMASK)	;determine if we have written the entire 
+f6ad 47				LD	B,A		;physical block. 
+f6ae a5				AND	L 
+f6af b8				CP	B 
+f6b0 23				INC	HL		;prepare for the next one. 
+f6b1 c2 9a f6			JP	NZ,WTSEQ8	;continue until (BLKMASK+1) sectors written. 
+f6b4 e1				POP	HL		;reset next sector number. 
+f6b5 22 e5 f9			LD	(BLKNMBR),HL 
+f6b8 cd da f1			CALL	DEFDMA		;and reset dma address. 
+f6bb			; 
+f6bb			;   Normal disk write. Set the desired track and sector then 
+f6bb			; do the actual write. 
+f6bb			; 
+f6bb cd d1 ef		WTSEQ9:	CALL	TRKSEC1		;determine track and sector for this write. 
+f6be c1				POP	BC		;get write status flag. 
+f6bf c5				PUSH	BC 
+f6c0 cd b8 ef			CALL	DOWRITE		;and write this out. 
+f6c3 c1				POP	BC 
+f6c4 3a e3 f9			LD	A,(SAVNREC)	;get number of records in file. 
+f6c7 21 e1 f9			LD	HL,SAVNXT	;get last record written. 
+f6ca be				CP	(HL) 
+f6cb da d2 f6			JP	C,WTSEQ10 
+f6ce 77				LD	(HL),A		;we have to update record count. 
+f6cf 34				INC	(HL) 
+f6d0 0e 02			LD	C,2 
+f6d2			; 
+f6d2			;*   This area has been patched to correct disk update problem 
+f6d2			;* when using blocking and de-blocking in the BIOS. 
+f6d2			; 
+f6d2 00			WTSEQ10:NOP			;was 'dcr c' 
+f6d3 00				NOP			;was 'dcr c' 
+f6d4 21 00 00			LD	HL,0		;was 'jnz wtseq99' 
+f6d7			; 
+f6d7			; *   End of patch. 
+f6d7			; 
+f6d7 f5				PUSH	AF 
+f6d8 cd 69 f1			CALL	GETS2		;set 'extent written to' flag. 
+f6db e6 7f			AND	7FH		;(* clear bit 7 *) 
+f6dd 77				LD	(HL),A 
+f6de f1				POP	AF		;get record count for this extent. 
+f6df fe 7f		WTSEQ99:CP	127		;is it full? 
+f6e1 c2 00 f7			JP	NZ,WTSEQ12 
+f6e4 3a d5 f9			LD	A,(MODE)	;yes, are we in sequential mode? 
+f6e7 fe 01			CP	1 
+f6e9 c2 00 f7			JP	NZ,WTSEQ12 
+f6ec cd d2 f0			CALL	SETNREC		;yes, set next record number. 
+f6ef cd 5a f5			CALL	GETNEXT		;and get next empty space in directory. 
+f6f2 21 45 ef			LD	HL,STATUS	;ok? 
+f6f5 7e				LD	A,(HL) 
+f6f6 b7				OR	A 
+f6f7 c2 fe f6			JP	NZ,WTSEQ11 
+f6fa 3d				DEC	A		;yes, set record count to -1. 
+f6fb 32 e3 f9			LD	(SAVNREC),A 
+f6fe 36 00		WTSEQ11:LD	(HL),0		;clear status. 
+f700 c3 d2 f0		WTSEQ12:JP	SETNREC		;set next record to access. 
+f703			; 
+f703			;   For random i/o, set the fcb for the desired record number 
+f703			; based on the 'r0,r1,r2' bytes. These bytes in the fcb are 
+f703			; used as follows: 
+f703			; 
+f703			;       fcb+35            fcb+34            fcb+33 
+f703			;  |     'r-2'      |      'r-1'      |      'r-0'     | 
+f703			;  |7             0 | 7             0 | 7             0| 
+f703			;  |0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0 | 0 0 0 0 0 0 0 0| 
+f703			;  |    overflow   | | extra |  extent   |   record #  | 
+f703			;  | ______________| |_extent|__number___|_____________| 
+f703			;                     also 's2' 
+f703			; 
+f703			;   On entry, register (C) contains 0ffh if this is a read 
+f703			; and thus we can not access unwritten disk space. Otherwise, 
+f703			; another extent will be opened (for writing) if required. 
+f703			; 
+f703 af			POSITION: XOR	A		;set random i/o flag. 
+f704 32 d5 f9			LD	(MODE),A 
+f707			; 
+f707			;   Special entry (function #40). M/PM ? 
+f707			; 
+f707 c5			POSITN1:PUSH	BC		;save read/write flag. 
+f708 2a 43 ef			LD	HL,(PARAMS)	;get address of fcb. 
+f70b eb				EX	DE,HL 
+f70c 21 21 00			LD	HL,33		;now get byte 'r0'. 
+f70f 19				ADD	HL,DE 
+f710 7e				LD	A,(HL) 
+f711 e6 7f			AND	7FH		;keep bits 0-6 for the record number to access. 
+f713 f5				PUSH	AF 
+f714 7e				LD	A,(HL)		;now get bit 7 of 'r0' and bits 0-3 of 'r1'. 
+f715 17				RLA	 
+f716 23				INC	HL 
+f717 7e				LD	A,(HL) 
+f718 17				RLA	 
+f719 e6 1f			AND	1FH		;and save this in bits 0-4 of (C). 
+f71b 4f				LD	C,A		;this is the extent byte. 
+f71c 7e				LD	A,(HL)		;now get the extra extent byte. 
+f71d 1f				RRA	 
+f71e 1f				RRA	 
+f71f 1f				RRA	 
+f720 1f				RRA	 
+f721 e6 0f			AND	0FH 
+f723 47				LD	B,A		;and save it in (B). 
+f724 f1				POP	AF		;get record number back to (A). 
+f725 23				INC	HL		;check overflow byte 'r2'. 
+f726 6e				LD	L,(HL) 
+f727 2c				INC	L 
+f728 2d				DEC	L 
+f729 2e 06			LD	L,6		;prepare for error. 
+f72b c2 8b f7			JP	NZ,POSITN5	;out of disk space error. 
+f72e 21 20 00			LD	HL,32		;store record number into fcb. 
+f731 19				ADD	HL,DE 
+f732 77				LD	(HL),A 
+f733 21 0c 00			LD	HL,12		;and now check the extent byte. 
+f736 19				ADD	HL,DE 
+f737 79				LD	A,C 
+f738 96				SUB	(HL)		;same extent as before? 
+f739 c2 47 f7			JP	NZ,POSITN2 
+f73c 21 0e 00			LD	HL,14		;yes, check extra extent byte 's2' also. 
+f73f 19				ADD	HL,DE 
+f740 78				LD	A,B 
+f741 96				SUB	(HL) 
+f742 e6 7f			AND	7FH 
+f744 ca 7f f7			JP	Z,POSITN3	;same, we are almost done then. 
+f747			; 
+f747			;  Get here when another extent is required. 
+f747			; 
+f747 c5			POSITN2:PUSH	BC 
+f748 d5				PUSH	DE 
+f749 cd a2 f4			CALL	CLOSEIT		;close current extent. 
+f74c d1				POP	DE 
+f74d c1				POP	BC 
+f74e 2e 03			LD	L,3		;prepare for error. 
+f750 3a 45 ef			LD	A,(STATUS) 
+f753 3c				INC	A 
+f754 ca 84 f7			JP	Z,POSITN4	;close error. 
+f757 21 0c 00			LD	HL,12		;put desired extent into fcb now. 
+f75a 19				ADD	HL,DE 
+f75b 71				LD	(HL),C 
+f75c 21 0e 00			LD	HL,14		;and store extra extent byte 's2'. 
+f75f 19				ADD	HL,DE 
+f760 70				LD	(HL),B 
+f761 cd 51 f4			CALL	OPENIT		;try and get this extent. 
+f764 3a 45 ef			LD	A,(STATUS)	;was it there? 
+f767 3c				INC	A 
+f768 c2 7f f7			JP	NZ,POSITN3 
+f76b c1				POP	BC		;no. can we create a new one (writing?). 
+f76c c5				PUSH	BC 
+f76d 2e 04			LD	L,4		;prepare for error. 
+f76f 0c				INC	C 
+f770 ca 84 f7			JP	Z,POSITN4	;nope, reading unwritten space error. 
+f773 cd 24 f5			CALL	GETEMPTY	;yes we can, try to find space. 
+f776 2e 05			LD	L,5		;prepare for error. 
+f778 3a 45 ef			LD	A,(STATUS) 
+f77b 3c				INC	A 
+f77c ca 84 f7			JP	Z,POSITN4	;out of space? 
+f77f			; 
+f77f			;   Normal return location. Clear error code and return. 
+f77f			; 
+f77f c1			POSITN3:POP	BC		;restore stack. 
+f780 af				XOR	A		;and clear error code byte. 
+f781 c3 01 ef			JP	SETSTAT 
+f784			; 
+f784			;   Error. Set the 's2' byte to indicate this (why?). 
+f784			; 
+f784 e5			POSITN4:PUSH	HL 
+f785 cd 69 f1			CALL	GETS2 
+f788 36 c0			LD	(HL),0C0H 
+f78a e1				POP	HL 
+f78b			; 
+f78b			;   Return with error code (presently in L). 
+f78b			; 
+f78b c1			POSITN5:POP	BC 
+f78c 7d				LD	A,L		;get error code. 
+f78d 32 45 ef			LD	(STATUS),A 
+f790 c3 78 f1			JP	SETS2B7 
+f793			; 
+f793			;   Read a random record. 
+f793			; 
+f793 0e ff		READRAN:LD	C,0FFH		;set 'read' status. 
+f795 cd 03 f7			CALL	POSITION	;position the file to proper record. 
+f798 cc c1 f5			CALL	Z,RDSEQ1	;and read it as usual (if no errors). 
+f79b c9				RET	 
+f79c			; 
+f79c			;   Write to a random record. 
+f79c			; 
+f79c 0e 00		WRITERAN: LD	C,0		;set 'writing' flag. 
+f79e cd 03 f7			CALL	POSITION	;position the file to proper record. 
+f7a1 cc 03 f6			CALL	Z,WTSEQ1	;and write as usual (if no errors). 
+f7a4 c9				RET	 
+f7a5			; 
+f7a5			;   Compute the random record number. Enter with (HL) pointing 
+f7a5			; to a fcb an (DE) contains a relative location of a record 
+f7a5			; number. On exit, (C) contains the 'r0' byte, (B) the 'r1' 
+f7a5			; byte, and (A) the 'r2' byte. 
+f7a5			; 
+f7a5			;   On return, the zero flag is set if the record is within 
+f7a5			; bounds. Otherwise, an overflow occured. 
+f7a5			; 
+f7a5 eb			COMPRAND: EX	DE,HL		;save fcb pointer in (DE). 
+f7a6 19				ADD	HL,DE		;compute relative position of record #. 
+f7a7 4e				LD	C,(HL)		;get record number into (BC). 
+f7a8 06 00			LD	B,0 
+f7aa 21 0c 00			LD	HL,12		;now get extent. 
+f7ad 19				ADD	HL,DE 
+f7ae 7e				LD	A,(HL)		;compute (BC)=(record #)+(extent)*128. 
+f7af 0f				RRCA			;move lower bit into bit 7. 
+f7b0 e6 80			AND	80H		;and ignore all other bits. 
+f7b2 81				ADD	A,C		;add to our record number. 
+f7b3 4f				LD	C,A 
+f7b4 3e 00			LD	A,0		;take care of any carry. 
+f7b6 88				ADC	A,B 
+f7b7 47				LD	B,A 
+f7b8 7e				LD	A,(HL)		;now get the upper bits of extent into 
+f7b9 0f				RRCA			;bit positions 0-3. 
+f7ba e6 0f			AND	0FH		;and ignore all others. 
+f7bc 80				ADD	A,B		;add this in to 'r1' byte. 
+f7bd 47				LD	B,A 
+f7be 21 0e 00			LD	HL,14		;get the 's2' byte (extra extent). 
+f7c1 19				ADD	HL,DE 
+f7c2 7e				LD	A,(HL) 
+f7c3 87				ADD	A,A		;and shift it left 4 bits (bits 4-7). 
+f7c4 87				ADD	A,A 
+f7c5 87				ADD	A,A 
+f7c6 87				ADD	A,A 
+f7c7 f5				PUSH	AF		;save carry flag (bit 0 of flag byte). 
+f7c8 80				ADD	A,B		;now add extra extent into 'r1'. 
+f7c9 47				LD	B,A 
+f7ca f5				PUSH	AF		;and save carry (overflow byte 'r2'). 
+f7cb e1				POP	HL		;bit 0 of (L) is the overflow indicator. 
+f7cc 7d				LD	A,L 
+f7cd e1				POP	HL		;and same for first carry flag. 
+f7ce b5				OR	L		;either one of these set? 
+f7cf e6 01			AND	01H		;only check the carry flags. 
+f7d1 c9				RET	 
+f7d2			; 
+f7d2			;   Routine to setup the fcb (bytes 'r0', 'r1', 'r2') to 
+f7d2			; reflect the last record used for a random (or other) file. 
+f7d2			; This reads the directory and looks at all extents computing 
+f7d2			; the largerst record number for each and keeping the maximum 
+f7d2			; value only. Then 'r0', 'r1', and 'r2' will reflect this 
+f7d2			; maximum record number. This is used to compute the space used 
+f7d2			; by a random file. 
+f7d2			; 
+f7d2 0e 0c		RANSIZE:LD	C,12		;look thru directory for first entry with 
+f7d4 cd 18 f3			CALL	FINDFST		;this name. 
+f7d7 2a 43 ef			LD	HL,(PARAMS)	;zero out the 'r0, r1, r2' bytes. 
+f7da 11 21 00			LD	DE,33 
+f7dd 19				ADD	HL,DE 
+f7de e5				PUSH	HL 
+f7df 72				LD	(HL),D		;note that (D)=0. 
+f7e0 23				INC	HL 
+f7e1 72				LD	(HL),D 
+f7e2 23				INC	HL 
+f7e3 72				LD	(HL),D 
+f7e4 cd f5 f1		RANSIZ1:CALL	CKFILPOS	;is there an extent to process? 
+f7e7 ca 0c f8			JP	Z,RANSIZ3	;no, we are done. 
+f7ea cd 5e f1			CALL	FCB2HL		;set (HL) pointing to proper fcb in dir. 
+f7ed 11 0f 00			LD	DE,15		;point to last record in extent. 
+f7f0 cd a5 f7			CALL	COMPRAND	;and compute random parameters. 
+f7f3 e1				POP	HL 
+f7f4 e5				PUSH	HL		;now check these values against those 
+f7f5 5f				LD	E,A		;already in fcb. 
+f7f6 79				LD	A,C		;the carry flag will be set if those 
+f7f7 96				SUB	(HL)		;in the fcb represent a larger size than 
+f7f8 23				INC	HL		;this extent does. 
+f7f9 78				LD	A,B 
+f7fa 9e				SBC	A,(HL) 
+f7fb 23				INC	HL 
+f7fc 7b				LD	A,E 
+f7fd 9e				SBC	A,(HL) 
+f7fe da 06 f8			JP	C,RANSIZ2 
+f801 73				LD	(HL),E		;we found a larger (in size) extent. 
+f802 2b				DEC	HL		;stuff these values into fcb. 
+f803 70				LD	(HL),B 
+f804 2b				DEC	HL 
+f805 71				LD	(HL),C 
+f806 cd 2d f3		RANSIZ2:CALL	FINDNXT		;now get the next extent. 
+f809 c3 e4 f7			JP	RANSIZ1		;continue til all done. 
+f80c e1			RANSIZ3:POP	HL		;we are done, restore the stack and 
+f80d c9				RET			;return. 
+f80e			; 
+f80e			;   Function to return the random record position of a given 
+f80e			; file which has been read in sequential mode up to now. 
+f80e			; 
+f80e 2a 43 ef		SETRAN:	LD	HL,(PARAMS)	;point to fcb. 
+f811 11 20 00			LD	DE,32		;and to last used record. 
+f814 cd a5 f7			CALL	COMPRAND	;compute random position. 
+f817 21 21 00			LD	HL,33		;now stuff these values into fcb. 
+f81a 19				ADD	HL,DE 
+f81b 71				LD	(HL),C		;move 'r0'. 
+f81c 23				INC	HL 
+f81d 70				LD	(HL),B		;and 'r1'. 
+f81e 23				INC	HL 
+f81f 77				LD	(HL),A		;and lastly 'r2'. 
+f820 c9				RET	 
+f821			; 
+f821			;   This routine select the drive specified in (ACTIVE) and 
+f821			; update the login vector and bitmap table if this drive was 
+f821			; not already active. 
+f821			; 
+f821 2a af f9		LOGINDRV: LD	HL,(LOGIN)	;get the login vector. 
+f824 3a 42 ef			LD	A,(ACTIVE)	;get the default drive. 
+f827 4f				LD	C,A 
+f828 cd ea f0			CALL	SHIFTR		;position active bit for this drive 
+f82b e5				PUSH	HL		;into bit 0. 
+f82c eb				EX	DE,HL 
+f82d cd 59 ef			CALL	SELECT		;select this drive. 
+f830 e1				POP	HL 
+f831 cc 47 ef			CALL	Z,SLCTERR	;valid drive? 
+f834 7d				LD	A,L		;is this a newly activated drive? 
+f835 1f				RRA	 
+f836 d8				RET	C 
+f837 2a af f9			LD	HL,(LOGIN)	;yes, update the login vector. 
+f83a 4d				LD	C,L 
+f83b 44				LD	B,H 
+f83c cd 0b f1			CALL	SETBIT 
+f83f 22 af f9			LD	(LOGIN),HL	;and save. 
+f842 c3 a3 f2			JP	BITMAP		;now update the bitmap. 
+f845			; 
+f845			;   Function to set the active disk number. 
+f845			; 
+f845 3a d6 f9		SETDSK:	LD	A,(EPARAM)	;get parameter passed and see if this 
+f848 21 42 ef			LD	HL,ACTIVE	;represents a change in drives. 
+f84b be				CP	(HL) 
+f84c c8				RET	Z 
+f84d 77				LD	(HL),A		;yes it does, log it in. 
+f84e c3 21 f8			JP	LOGINDRV 
+f851			; 
+f851			;   This is the 'auto disk select' routine. The firsst byte 
+f851			; of the fcb is examined for a drive specification. If non 
+f851			; zero then the drive will be selected and loged in. 
+f851			; 
+f851 3e ff		AUTOSEL:LD	A,0FFH		;say 'auto-select activated'. 
+f853 32 de f9			LD	(AUTO),A 
+f856 2a 43 ef			LD	HL,(PARAMS)	;get drive specified. 
+f859 7e				LD	A,(HL) 
+f85a e6 1f			AND	1FH		;look at lower 5 bits. 
+f85c 3d				DEC	A		;adjust for (1=A, 2=B) etc. 
+f85d 32 d6 f9			LD	(EPARAM),A	;and save for the select routine. 
+f860 fe 1e			CP	1EH		;check for 'no change' condition. 
+f862 d2 75 f8			JP	NC,AUTOSL1	;yes, don't change. 
+f865 3a 42 ef			LD	A,(ACTIVE)	;we must change, save currently active 
+f868 32 df f9			LD	(OLDDRV),A	;drive. 
+f86b 7e				LD	A,(HL)		;and save first byte of fcb also. 
+f86c 32 e0 f9			LD	(AUTOFLAG),A	;this must be non-zero. 
+f86f e6 e0			AND	0E0H		;whats this for (bits 6,7 are used for 
+f871 77				LD	(HL),A		;something)? 
+f872 cd 45 f8			CALL	SETDSK		;select and log in this drive. 
+f875 3a 41 ef		AUTOSL1:LD	A,(USERNO)	;move user number into fcb. 
+f878 2a 43 ef			LD	HL,(PARAMS)	;(* upper half of first byte *) 
+f87b b6				OR	(HL) 
+f87c 77				LD	(HL),A 
+f87d c9				RET			;and return (all done). 
+f87e			; 
+f87e			;   Function to return the current cp/m version number. 
+f87e			; 
+f87e 3e 22		GETVER:	LD	A,022H		;version 2.2 
+f880 c3 01 ef			JP	SETSTAT 
+f883			; 
+f883			;   Function to reset the disk system. 
+f883			; 
+f883 21 00 00		RSTDSK:	LD	HL,0		;clear write protect status and log 
+f886 22 ad f9			LD	(WRTPRT),HL	;in vector. 
+f889 22 af f9			LD	(LOGIN),HL 
+f88c af				XOR	A		;select drive 'A'. 
+f88d 32 42 ef			LD	(ACTIVE),A 
+f890 21 80 00			LD	HL,TBUFF	;setup default dma address. 
+f893 22 b1 f9			LD	(USERDMA),HL 
+f896 cd da f1			CALL	DEFDMA 
+f899 c3 21 f8			JP	LOGINDRV	;now log in drive 'A'. 
+f89c			; 
+f89c			;   Function to open a specified file. 
+f89c			; 
+f89c cd 72 f1		OPENFIL:CALL	CLEARS2		;clear 's2' byte. 
+f89f cd 51 f8			CALL	AUTOSEL		;select proper disk. 
+f8a2 c3 51 f4			JP	OPENIT		;and open the file. 
+f8a5			; 
+f8a5			;   Function to close a specified file. 
+f8a5			; 
+f8a5 cd 51 f8		CLOSEFIL: CALL	AUTOSEL		;select proper disk. 
+f8a8 c3 a2 f4			JP	CLOSEIT		;and close the file. 
+f8ab			; 
+f8ab			;   Function to return the first occurence of a specified file 
+f8ab			; name. If the first byte of the fcb is '?' then the name will 
+f8ab			; not be checked (get the first entry no matter what). 
+f8ab			; 
+f8ab 0e 00		GETFST:	LD	C,0		;prepare for special search. 
+f8ad eb				EX	DE,HL 
+f8ae 7e				LD	A,(HL)		;is first byte a '?'? 
+f8af fe 3f			CP	'?' 
+f8b1 ca c2 f8			JP	Z,GETFST1	;yes, just get very first entry (zero length match). 
+f8b4 cd a6 f0			CALL	SETEXT		;get the extension byte from fcb. 
+f8b7 7e				LD	A,(HL)		;is it '?'? if yes, then we want 
+f8b8 fe 3f			CP	'?'		;an entry with a specific 's2' byte. 
+f8ba c4 72 f1			CALL	NZ,CLEARS2	;otherwise, look for a zero 's2' byte. 
+f8bd cd 51 f8			CALL	AUTOSEL		;select proper drive. 
+f8c0 0e 0f			LD	C,15		;compare bytes 0-14 in fcb (12&13 excluded). 
+f8c2 cd 18 f3		GETFST1:CALL	FINDFST		;find an entry and then move it into 
+f8c5 c3 e9 f1			JP	MOVEDIR		;the users dma space. 
+f8c8			; 
+f8c8			;   Function to return the next occurence of a file name. 
+f8c8			; 
+f8c8 2a d9 f9		GETNXT:	LD	HL,(SAVEFCB)	;restore pointers. note that no 
+f8cb 22 43 ef			LD	(PARAMS),HL	;other dbos calls are allowed. 
+f8ce cd 51 f8			CALL	AUTOSEL		;no error will be returned, but the 
+f8d1 cd 2d f3			CALL	FINDNXT		;results will be wrong. 
+f8d4 c3 e9 f1			JP	MOVEDIR 
+f8d7			; 
+f8d7			;   Function to delete a file by name. 
+f8d7			; 
+f8d7 cd 51 f8		DELFILE:CALL	AUTOSEL		;select proper drive. 
+f8da cd 9c f3			CALL	ERAFILE		;erase the file. 
+f8dd c3 01 f3			JP	STSTATUS	;set status and return. 
+f8e0			; 
+f8e0			;   Function to execute a sequential read of the specified 
+f8e0			; record number. 
+f8e0			; 
+f8e0 cd 51 f8		READSEQ:CALL	AUTOSEL		;select proper drive then read. 
+f8e3 c3 bc f5			JP	RDSEQ 
+f8e6			; 
+f8e6			;   Function to write the net sequential record. 
+f8e6			; 
+f8e6 cd 51 f8		WRTSEQ:	CALL	AUTOSEL		;select proper drive then write. 
+f8e9 c3 fe f5			JP	WTSEQ 
+f8ec			; 
+f8ec			;   Create a file function. 
+f8ec			; 
+f8ec cd 72 f1		FCREATE:CALL	CLEARS2		;clear the 's2' byte on all creates. 
+f8ef cd 51 f8			CALL	AUTOSEL		;select proper drive and get the next 
+f8f2 c3 24 f5			JP	GETEMPTY	;empty directory space. 
+f8f5			; 
+f8f5			;   Function to rename a file. 
+f8f5			; 
+f8f5 cd 51 f8		RENFILE:CALL	AUTOSEL		;select proper drive and then switch 
+f8f8 cd 16 f4			CALL	CHGNAMES	;file names. 
+f8fb c3 01 f3			JP	STSTATUS 
+f8fe			; 
+f8fe			;   Function to return the login vector. 
+f8fe			; 
+f8fe 2a af f9		GETLOG:	LD	HL,(LOGIN) 
+f901 c3 29 f9			JP	GETPRM1 
+f904			; 
+f904			;   Function to return the current disk assignment. 
+f904			; 
+f904 3a 42 ef		GETCRNT:LD	A,(ACTIVE) 
+f907 c3 01 ef			JP	SETSTAT 
+f90a			; 
+f90a			;   Function to set the dma address. 
+f90a			; 
+f90a eb			PUTDMA:	EX	DE,HL 
+f90b 22 b1 f9			LD	(USERDMA),HL	;save in our space and then get to 
+f90e c3 da f1			JP	DEFDMA		;the bios with this also. 
+f911			; 
+f911			;   Function to return the allocation vector. 
+f911			; 
+f911 2a bf f9		GETALOC:LD	HL,(ALOCVECT) 
+f914 c3 29 f9			JP	GETPRM1 
+f917			; 
+f917			;   Function to return the read-only status vector. 
+f917			; 
+f917 2a ad f9		GETROV:	LD	HL,(WRTPRT) 
+f91a c3 29 f9			JP	GETPRM1 
+f91d			; 
+f91d			;   Function to set the file attributes (read-only, system). 
+f91d			; 
+f91d cd 51 f8		SETATTR:CALL	AUTOSEL		;select proper drive then save attributes. 
+f920 cd 3b f4			CALL	SAVEATTR 
+f923 c3 01 f3			JP	STSTATUS 
+f926			; 
+f926			;   Function to return the address of the disk parameter block 
+f926			; for the current drive. 
+f926			; 
+f926 2a bb f9		GETPARM:LD	HL,(DISKPB) 
+f929 22 45 ef		GETPRM1:LD	(STATUS),HL 
+f92c c9				RET	 
+f92d			; 
+f92d			;   Function to get or set the user number. If (E) was (FF) 
+f92d			; then this is a request to return the current user number. 
+f92d			; Else set the user number from (E). 
+f92d			; 
+f92d 3a d6 f9		GETUSER:LD	A,(EPARAM)	;get parameter. 
+f930 fe ff			CP	0FFH		;get user number? 
+f932 c2 3b f9			JP	NZ,SETUSER 
+f935 3a 41 ef			LD	A,(USERNO)	;yes, just do it. 
+f938 c3 01 ef			JP	SETSTAT 
+f93b e6 1f		SETUSER:AND	1FH		;no, we should set it instead. keep low 
+f93d 32 41 ef			LD	(USERNO),A	;bits (0-4) only. 
+f940 c9				RET	 
+f941			; 
+f941			;   Function to read a random record from a file. 
+f941			; 
+f941 cd 51 f8		RDRANDOM: CALL	AUTOSEL		;select proper drive and read. 
+f944 c3 93 f7			JP	READRAN 
+f947			; 
+f947			;   Function to compute the file size for random files. 
+f947			; 
+f947 cd 51 f8		WTRANDOM: CALL	AUTOSEL		;select proper drive and write. 
+f94a c3 9c f7			JP	WRITERAN 
+f94d			; 
+f94d			;   Function to compute the size of a random file. 
+f94d			; 
+f94d cd 51 f8		FILESIZE: CALL	AUTOSEL		;select proper drive and check file length 
+f950 c3 d2 f7			JP	RANSIZE 
+f953			; 
+f953			;   Function #37. This allows a program to log off any drives. 
+f953			; On entry, set (DE) to contain a word with bits set for those 
+f953			; drives that are to be logged off. The log-in vector and the 
+f953			; write protect vector will be updated. This must be a M/PM 
+f953			; special function. 
+f953			; 
+f953 2a 43 ef		LOGOFF:	LD	HL,(PARAMS)	;get drives to log off. 
+f956 7d				LD	A,L		;for each bit that is set, we want 
+f957 2f				CPL			;to clear that bit in (LOGIN) 
+f958 5f				LD	E,A		;and (WRTPRT). 
+f959 7c				LD	A,H 
+f95a 2f				CPL	 
+f95b 2a af f9			LD	HL,(LOGIN)	;reset the login vector. 
+f95e a4				AND	H 
+f95f 57				LD	D,A 
+f960 7d				LD	A,L 
+f961 a3				AND	E 
+f962 5f				LD	E,A 
+f963 2a ad f9			LD	HL,(WRTPRT) 
+f966 eb				EX	DE,HL 
+f967 22 af f9			LD	(LOGIN),HL	;and save. 
+f96a 7d				LD	A,L		;now do the write protect vector. 
+f96b a3				AND	E 
+f96c 6f				LD	L,A 
+f96d 7c				LD	A,H 
+f96e a2				AND	D 
+f96f 67				LD	H,A 
+f970 22 ad f9			LD	(WRTPRT),HL	;and save. all done. 
+f973 c9				RET	 
+f974			; 
+f974			;   Get here to return to the user. 
+f974			; 
+f974 3a de f9		GOBACK:	LD	A,(AUTO)	;was auto select activated? 
+f977 b7				OR	A 
+f978 ca 91 f9			JP	Z,GOBACK1 
+f97b 2a 43 ef			LD	HL,(PARAMS)	;yes, but was a change made? 
+f97e 36 00			LD	(HL),0		;(* reset first byte of fcb *) 
+f980 3a e0 f9			LD	A,(AUTOFLAG) 
+f983 b7				OR	A 
+f984 ca 91 f9			JP	Z,GOBACK1 
+f987 77				LD	(HL),A		;yes, reset first byte properly. 
+f988 3a df f9			LD	A,(OLDDRV)	;and get the old drive and select it. 
+f98b 32 d6 f9			LD	(EPARAM),A 
+f98e cd 45 f8			CALL	SETDSK 
+f991 2a 0f ef		GOBACK1:LD	HL,(USRSTACK)	;reset the users stack pointer. 
+f994 f9				LD	SP,HL 
+f995 2a 45 ef			LD	HL,(STATUS)	;get return status. 
+f998 7d				LD	A,L		;force version 1.4 compatability. 
+f999 44				LD	B,H 
+f99a c9				RET			;and go back to user. 
+f99b			; 
+f99b			;   Function #40. This is a special entry to do random i/o. 
+f99b			; For the case where we are writing to unused disk space, this 
+f99b			; space will be zeroed out first. This must be a M/PM special 
+f99b			; purpose function, because why would any normal program even 
+f99b			; care about the previous contents of a sector about to be 
+f99b			; written over. 
+f99b			; 
+f99b cd 51 f8		WTSPECL:CALL	AUTOSEL		;select proper drive. 
+f99e 3e 02			LD	A,2		;use special write mode. 
+f9a0 32 d5 f9			LD	(MODE),A 
+f9a3 0e 00			LD	C,0		;set write indicator. 
+f9a5 cd 07 f7			CALL	POSITN1		;position the file. 
+f9a8 cc 03 f6			CALL	Z,WTSEQ1	;and write (if no errors). 
+f9ab c9				RET	 
+f9ac			; 
+f9ac			;************************************************************** 
+f9ac			;* 
+f9ac			;*     BDOS data storage pool. 
+f9ac			;* 
+f9ac			;************************************************************** 
+f9ac			; 
+f9ac e5			EMPTYFCB: DEFB	0E5H		;empty directory segment indicator. 
+f9ad 00 00		WRTPRT:	DEFW	0		;write protect status for all 16 drives. 
+f9af 00 00		LOGIN:	DEFW	0		;drive active word (1 bit per drive). 
+f9b1 80 00		USERDMA:DEFW	080H		;user's dma address (defaults to 80h). 
+f9b3			; 
+f9b3			;   Scratch areas from parameter block. 
+f9b3			; 
+f9b3 00 00		SCRATCH1: DEFW	0		;relative position within dir segment for file (0-3). 
+f9b5 00 00		SCRATCH2: DEFW	0		;last selected track number. 
+f9b7 00 00		SCRATCH3: DEFW	0		;last selected sector number. 
+f9b9			; 
+f9b9			;   Disk storage areas from parameter block. 
+f9b9			; 
+f9b9 00 00		DIRBUF:	DEFW	0		;address of directory buffer to use. 
+f9bb 00 00		DISKPB:	DEFW	0		;contains address of disk parameter block. 
+f9bd 00 00		CHKVECT:DEFW	0		;address of check vector. 
+f9bf 00 00		ALOCVECT: DEFW	0		;address of allocation vector (bit map). 
+f9c1			; 
+f9c1			;   Parameter block returned from the bios. 
+f9c1			; 
+f9c1 00 00		SECTORS:DEFW	0		;sectors per track from bios. 
+f9c3 00			BLKSHFT:DEFB	0		;block shift. 
+f9c4 00			BLKMASK:DEFB	0		;block mask. 
+f9c5 00			EXTMASK:DEFB	0		;extent mask. 
+f9c6 00 00		DSKSIZE:DEFW	0		;disk size from bios (number of blocks-1). 
+f9c8 00 00		DIRSIZE:DEFW	0		;directory size. 
+f9ca 00 00		ALLOC0:	DEFW	0		;storage for first bytes of bit map (dir space used). 
+f9cc 00 00		ALLOC1:	DEFW	0 
+f9ce 00 00		OFFSET:	DEFW	0		;first usable track number. 
+f9d0 00 00		XLATE:	DEFW	0		;sector translation table address. 
+f9d2			; 
+f9d2			; 
+f9d2 00			CLOSEFLG: DEFB	0		;close flag (=0ffh is extent written ok). 
+f9d3 00			RDWRTFLG: DEFB	0		;read/write flag (0ffh=read, 0=write). 
+f9d4 00			FNDSTAT:DEFB	0		;filename found status (0=found first entry). 
+f9d5 00			MODE:	DEFB	0		;I/o mode select (0=random, 1=sequential, 2=special random). 
+f9d6 00			EPARAM:	DEFB	0		;storage for register (E) on entry to bdos. 
+f9d7 00			RELBLOCK: DEFB	0		;relative position within fcb of block number written. 
+f9d8 00			COUNTER:DEFB	0		;byte counter for directory name searches. 
+f9d9 00 00 00 00	SAVEFCB:DEFW	0,0		;save space for address of fcb (for directory searches). 
+f9dd 00			BIGDISK:DEFB	0		;if =0 then disk is > 256 blocks long. 
+f9de 00			AUTO:	DEFB	0		;if non-zero, then auto select activated. 
+f9df 00			OLDDRV:	DEFB	0		;on auto select, storage for previous drive. 
+f9e0 00			AUTOFLAG: DEFB	0		;if non-zero, then auto select changed drives. 
+f9e1 00			SAVNXT:	DEFB	0		;storage for next record number to access. 
+f9e2 00			SAVEXT:	DEFB	0		;storage for extent number of file. 
+f9e3 00 00		SAVNREC:DEFW	0		;storage for number of records in file. 
+f9e5 00 00		BLKNMBR:DEFW	0		;block number (physical sector) used within a file or logical sect 
+f9e7 00 00		LOGSECT:DEFW	0		;starting logical (128 byte) sector of block (physical sector). 
+f9e9 00			FCBPOS:	DEFB	0		;relative position within buffer for fcb of file of interest. 
+f9ea 00 00		FILEPOS:DEFW	0		;files position within directory (0 to max entries -1). 
+f9ec			; 
+f9ec			;   Disk directory buffer checksum bytes. One for each of the 
+f9ec			; 16 possible drives. 
+f9ec			; 
+f9ec 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00	CKSUMTBL: DEFB	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 
+f9fc			; 
+f9fc			;   Extra space ? 
+f9fc			; 
+f9fc 00 00 00 00		DEFB	0,0,0,0 
+fa00			; 
+fa00			;************************************************************** 
+fa00			;* 
+fa00			;*        B I O S   J U M P   T A B L E 
+fa00			;* 
+fa00			;************************************************************** 
+fa00			; 
+fa00			; WRS: these come from our BIOS. 
+fa00 c3 00 00		BOOT:	JP	0		;NOTE WE USE FAKE DESTINATIONS 
+fa03 c3 00 00		WBOOT:	JP	0 
+fa06 c3 00 00		CONST:	JP	0 
+fa09 c3 00 00		CONIN:	JP	0 
+fa0c c3 00 00		CONOUT:	JP	0 
+fa0f c3 00 00		LIST:	JP	0 
+fa12 c3 00 00		PUNCH:	JP	0 
+fa15 c3 00 00		READER:	JP	0 
+fa18 c3 00 00		HOME:	JP	0 
+fa1b c3 00 00		SELDSK:	JP	0 
+fa1e c3 00 00		SETTRK:	JP	0 
+fa21 c3 00 00		SETSEC:	JP	0 
+fa24 c3 00 00		SETDMA:	JP	0 
+fa27 c3 00 00		READ:	JP	0 
+fa2a c3 00 00		WRITE:	JP	0 
+fa2d c3 00 00		PRSTAT:	JP	0 
+fa30 c3 00 00		SECTRN:	JP	0 
+fa33			; 
+fa33			;* 
+fa33			;******************   E N D   O F   C P / M   ***************** 
+fa33			;* 
+fa33			 
+# End of file cpm22.asm
+fa33
