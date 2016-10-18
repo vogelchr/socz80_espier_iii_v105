@@ -1,3 +1,59 @@
+***************************************************************************
+**                                                                       **
+** Important: This is a fork of William R. SOwerbutts' socZ80            **
+**            by Christian Vogel <vogelchr@vogel.cx> to support a cheap  **
+**            Spartan6 board. Most of my changes have been rather        **
+**            trivial, but any problems in the design have probably      **
+**            been introduced by me, not by William :-).                 **
+**                                                                       **
+***************************************************************************
+
+Changes to the original design:
+
+   - works on a cheap Spartan6 board with labels in chinese, marking
+     on the bottom left corner: ESPIER_III V105
+
+  - uses a Winbond W9864G6KH-5 DRAM (1M, 4banks, 16bit)
+
+   - monitor.asm : changed RDID command sequence to work with the
+       Winbond W25Q32B SPI flash(es) on the ESPIER board
+
+   - project file is       socz80_espier_iii_v105.xise
+   - toplevel .vhd file is top_level_espier_iii_v105.vhd
+   - user-constraints are  espier_iii_V105.ucf
+
+
+ESPIER_III V105 board
+
+ +----------------------------------------------------------------+
+ |zrtech        [Seven-Segment]                                   |
+ [::] J1          D5 D4 D3 D2 D1                                  |
+ [:1] JTAG           Leds                                         |
+ |                                                                |
+ [::] J3                                                          |
+ [::]                                                             |
+ [::]                                                             |
+ [::]                                                             |
+ [:1]                   Buttons                             USB   |
+ |     (Beep)     [S4]   [S3]   [S2]   [S1]         [On/Off]      |
+ +----------------------------------------------------------------+
+                  Reset Console  User1  User0 
+                        gpio[2] gpio[1] gpio[0]
+
+Buttons are (from left to right):
+    * Reset    (push to reset Z80 system)
+    * Console  (keep pushed during reset to have console on J3 S57N/S58P
+    * User 1
+    * User 0
+
+S3, S2 and S1 are available as inputs 2..0 in the GPIO inputs.
+LEDs D5..D2 are gpio outputs 3..0, D1 is always on (power LED).
+
+The 7-segment display can display any hex number, high-byte is
+io-register 0x38, low-byte is 0x39, decimal digits are 0x3a.
+
+---- Original README by Willaim follows: ----------------------------------
+
 socZ80 by William R Sowerbutts <will@sowerbutts.com> 
 
 http://sowerbutts.com/socz80/ -- 2014-04-30 release (git 33e313f7)
