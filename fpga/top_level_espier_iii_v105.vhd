@@ -47,6 +47,12 @@ entity top_level is
            cfgflash_cs         : out   std_logic;
            cfgflash_clk        : out   std_logic;
 
+           -- debugging pins
+           ext_minus           : out   std_logic;
+           ext_plus            : out   std_logic;
+           ps2_clk             : out   std_logic;
+           ps2_dat             : out   std_logic;
+
            -- SD card socket
 --           sdcard_spi_cs       : out   std_logic;
 --           sdcard_spi_clk      : out   std_logic;
@@ -75,7 +81,7 @@ entity top_level is
 end top_level;
 
 architecture Behavioral of top_level is
-    constant clk_freq_mhz        : natural := 120; -- this is the frequency which the PLL outputs, in MHz.
+    constant clk_freq_mhz        : natural := 60; -- this is the frequency which the PLL outputs, in MHz.
 
     -- W9864G6KH6 166 MHz/CL3
     -- https://www.winbond.com/resource-files/w9864g6kh_a02.pdf
@@ -553,7 +559,7 @@ begin
                CLKFBOUT_PHASE => 0.0,                -- Phase offset in degrees of the clock feedback output (0.0-360.0).
                CLKIN_PERIOD   => 20.8,               -- Input clock period in ns to ps resolution (i.e. 33.333 is 30 MHz).
                                                      -- CLKOUT0_DIVIDE - CLKOUT5_DIVIDE: Divide amount for CLKOUT# clock output (1-128)
-               CLKOUT0_DIVIDE => 4,                  -- 32MHz * 16 / 4 = 128MHz. Adjust clk_freq_mhz constant (above) if you change this.
+               CLKOUT0_DIVIDE => 8,                  -- 32MHz * 16 / 4 = 128MHz. Adjust clk_freq_mhz constant (above) if you change this.
                CLKOUT1_DIVIDE => 1,
                CLKOUT2_DIVIDE => 1,
                CLKOUT3_DIVIDE => 1,
@@ -614,4 +620,12 @@ begin
        cfgflash_cs => cfgflash_cs,
        cfgflash_clk => cfgflash_clk
    );
+
+
+   -- debugging
+   ext_minus <= req_io;
+   ext_plus <= req_write;
+   ps2_clk <= req_read;
+   ps2_dat <= cpu_wait;
+
 end Behavioral;
