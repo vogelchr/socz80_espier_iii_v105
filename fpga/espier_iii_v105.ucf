@@ -34,6 +34,12 @@ NET flash_spi_clk   LOC="P88"  | IOSTANDARD=LVTTL | SLEW=FAST;
 NET flash_spi_mosi  LOC="P87"  | IOSTANDARD=LVTTL | SLEW=FAST;
 NET flash_spi_miso  LOC="P92"  | IOSTANDARD=LVTTL | SLEW=FAST | PULLUP;
 
+# U7 stores the FPGA configuration (called "FPGA Flash", funky net names)
+NET cfgflash_mosi   LOC="P64" | IOSTANDARD=LVTTL | SLEW=FAST;  # "MOSI"
+NET cfgflash_miso   LOC="P65" | IOSTANDARD=LVTTL | SLEW=FAST;  # "DIN"
+NET cfgflash_cs     LOC="P38" | IOSTANDARD=LVTTL | SLEW=FAST;  # "CSO_B"
+NET cfgflash_clk    LOC="P70" | IOSTANDARD=LVTTL | SLEW=FAST;  # "CCLK"
+
 # SDRAM on Papilio Pro (MT48LC4M16)
 NET SDRAM_ADDR(0)   LOC="P7" | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR0
 NET SDRAM_ADDR(1)   LOC="P8" | IOSTANDARD=LVTTL | SLEW=FAST;           # SDRAM_ADDR1

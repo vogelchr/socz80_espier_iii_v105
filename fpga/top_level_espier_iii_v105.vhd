@@ -40,6 +40,13 @@ entity top_level is
            flash_spi_mosi      : out   std_logic;
            flash_spi_miso      : in    std_logic;
 
+           -- flash holding the FPGA configuration, accessible
+           -- via BSCAN/USER1
+           cfgflash_mosi       : out   std_logic;
+           cfgflash_miso       : in    std_logic;
+           cfgflash_cs         : out   std_logic;
+           cfgflash_clk        : out   std_logic;
+
            -- SD card socket
 --           sdcard_spi_cs       : out   std_logic;
 --           sdcard_spi_clk      : out   std_logic;
@@ -601,4 +608,10 @@ begin
        segment => ss_seg
    );
 
+   ent_bscan_spi_isf: entity work.bscan_spi_isf port map (
+       cfgflash_mosi => cfgflash_mosi,
+       cfgflash_miso => cfgflash_miso,
+       cfgflash_cs => cfgflash_cs,
+       cfgflash_clk => cfgflash_clk
+   );
 end Behavioral;
