@@ -30,9 +30,10 @@ MMU_PTR_VAL1:  equ 0xFD
 MMU_PTR_VAL2:  equ 0xFE
 MMU_PTR_VAL3:  equ 0xFF
 
-FLASH_MAN:     equ 0xc2
-FLASH_DEV1:    equ 0x20
-FLASH_DEV2:    equ 0x17
+; Reply to JEDEC ID (9Fh) SPI command:
+FLASH_MAN:     equ 0xef   ; M[7:0]     Manufacturer: Winbond
+FLASH_DEV1:    equ 0x40   ; ID[15:8] } Device: W25Q32, 32Mbit=4MByte
+FLASH_DEV2:    equ 0x16   ; ID[7:0]  } ID 0x4016
 
 RAM_MB: equ 8
 
@@ -970,9 +971,12 @@ flash_initialise:
         ld a, 0x9f ; identify/RDID command
         out (SPI_TX), a ; send command
         xor a
-        out (SPI_TX), a ; send three address bytes
-        out (SPI_TX), a
-        out (SPI_TX), a
+	nop  ; here, three dummy transactions were
+	nop  ; sent to the SPI flash which aren't
+	nop  ; correct, according to the datasheet
+	nop  ;   (3x out (SPI_TX), a
+	nop  ; Replaced by .nop to keep changes in the
+	nop  ; generated binary minimal (vhdl ROM generated).
         ; read out ID value (3 bytes)
         out (SPI_TX), a
         in a, (SPI_RX)
