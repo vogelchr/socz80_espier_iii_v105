@@ -29,10 +29,8 @@ entity top_level is
            serial_tx           : out   std_logic;
 
            -- UART0 (to MAX3232 level shifter chip, hardware flow control)
---           uart1_rx            : in    std_logic;
---           uart1_cts           : in    std_logic;
---           uart1_tx            : out   std_logic;
---           uart1_rts           : out   std_logic;
+           uart1_rx            : in    std_logic;
+           uart1_tx            : out   std_logic;
 
            -- SPI flash chip
            flash_spi_cs        : out   std_logic;
@@ -48,8 +46,6 @@ entity top_level is
            cfgflash_clk        : out   std_logic;
 
            -- debugging pins
-           ext_minus           : out   std_logic;
-           ext_plus            : out   std_logic;
            ps2_clk             : out   std_logic;
            ps2_dat             : out   std_logic;
 
@@ -181,8 +177,6 @@ architecture Behavioral of top_level is
     signal uart1_interrupt      : std_logic;
 
     -- dummy signal for disable peripherals
-    signal uart1_rx             : std_logic := '1'; -- disable
-    signal uart1_tx             : std_logic;
     signal uart1_cts            : std_logic := '1'; -- disable
     signal uart1_rts            : std_logic;
 
@@ -457,8 +451,8 @@ begin
                reset => system_reset,
                serial_in => uart1_rx,
                serial_out => uart1_tx,
-               serial_rts => uart1_rts,
-               serial_cts => uart1_cts,
+               serial_rts => open,
+               serial_cts => '0',
                cpu_address => virtual_address(2 downto 0),
                cpu_data_in => cpu_data_out,
                cpu_data_out => uart1_data_out,
@@ -623,8 +617,6 @@ begin
 
 
    -- debugging
-   ext_minus <= req_io;
-   ext_plus <= req_write;
    ps2_clk <= req_read;
    ps2_dat <= cpu_wait;
 
