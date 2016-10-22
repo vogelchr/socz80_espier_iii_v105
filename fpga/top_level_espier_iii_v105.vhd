@@ -101,7 +101,9 @@ architecture Behavioral of top_level is
     -- signals for clocking
     signal clk_feedback         : std_logic;  -- PLL clock feedback
     signal clk_unbuffered       : std_logic;  -- unbuffered system clock
+    signal clk180_unbuffered    : std_logic;  --  "" inverted
     signal clk                  : std_logic;  -- buffered system clock (all logic should be clocked by this)
+    signal clk180               : std_logic;  --  "" inverted (for DRAM controller)
 
     -- console latch
     signal console_select_clk1  : std_logic;
@@ -376,6 +378,7 @@ begin
               )
    port map(
                clk             => clk,
+               clk180          => clk180,
                reset           => '0', -- important to note that we DO NOT reset the SDRAM controller on reset (it would stop refreshing, which would be bad)
 
                -- interface to synthetic CPU
@@ -544,8 +547,10 @@ begin
                clk_enable => cpu_clk_enable
            );
 
-   -- PLL scales 32MHz Papilio Pro oscillator frequency to 128MHz
-   -- clock for our logic.
+   -- PLL scales 48MHz XTAL clock to (x10) 480Mhz,
+   -- then down to (/8) 60MHz clk180 is supposed to be
+   -- 180 deg out of phase.
+
    clock_pll: PLL_BASE
    generic map (
                BANDWIDTH      => "OPTIMIZED",        -- "HIGH", "LOW" or "OPTIMIZED"
@@ -553,8 +558,8 @@ begin
                CLKFBOUT_PHASE => 0.0,                -- Phase offset in degrees of the clock feedback output (0.0-360.0).
                CLKIN_PERIOD   => 20.8,               -- Input clock period in ns to ps resolution (i.e. 33.333 is 30 MHz).
                                                      -- CLKOUT0_DIVIDE - CLKOUT5_DIVIDE: Divide amount for CLKOUT# clock output (1-128)
-               CLKOUT0_DIVIDE => 8,                  -- 32MHz * 16 / 4 = 128MHz. Adjust clk_freq_mhz constant (above) if you change this.
-               CLKOUT1_DIVIDE => 1,
+               CLKOUT0_DIVIDE => 8,
+               CLKOUT1_DIVIDE => 8,
                CLKOUT2_DIVIDE => 1,
                CLKOUT3_DIVIDE => 1,
                CLKOUT4_DIVIDE => 1,
@@ -564,7 +569,7 @@ begin
                CLKOUT2_DUTY_CYCLE => 0.5, CLKOUT3_DUTY_CYCLE => 0.5,
                CLKOUT4_DUTY_CYCLE => 0.5, CLKOUT5_DUTY_CYCLE => 0.5,
                                                -- CLKOUT0_PHASE - CLKOUT5_PHASE: Output phase relationship for CLKOUT# clock output (-360.0-360.0).
-               CLKOUT0_PHASE => 0.0,      CLKOUT1_PHASE => 0.0, -- Capture clock
+               CLKOUT0_PHASE => 0.0,      CLKOUT1_PHASE => 180.0, -- Capture clock
                CLKOUT2_PHASE => 0.0,      CLKOUT3_PHASE => 0.0,
                CLKOUT4_PHASE => 0.0,      CLKOUT5_PHASE => 0.0,
 
@@ -578,9 +583,9 @@ begin
                CLKIN    => sysclk_48m,   -- 1-bit input: Clock input
                CLKFBOUT => clk_feedback, -- 1-bit output: PLL_BASE feedback output
                CLKFBIN  => clk_feedback, -- 1-bit input: Feedback clock input
-                                         -- CLKOUT0 - CLKOUT5: 1-bit (each) output: Clock outputs
-               CLKOUT0 => clk_unbuffered, -- 64MHz clock output
-               CLKOUT1 => open,
+
+               CLKOUT0 => clk_unbuffered, --
+               CLKOUT1 => clk180_unbuffered,
                CLKOUT2 => open,
                CLKOUT3 => open,
                CLKOUT4 => open,
@@ -591,10 +596,9 @@ begin
 
    -- Buffering of clocks
    BUFG_clk: BUFG
-   port map(
-               O => clk,
-               I => clk_unbuffered
-            );
+    port map( O => clk,    I => clk_unbuffered );
+   BUFG_clk180: BUFG
+    port map( O => clk180, I => clk180_unbuffered );
 
    ent_seven_seg: entity work.seven_seg port map (
        clk => clk,

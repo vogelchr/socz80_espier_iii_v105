@@ -58,6 +58,7 @@ entity DRAM is
 	port(
         -- interface to the system
         clk         : in    std_logic;
+        clk180      : in    std_logic;
         reset       : in    std_logic;
         cs          : in    std_logic;
         req_read    : in    std_logic;
@@ -346,6 +347,7 @@ begin
                )
     PORT MAP(
                 clk             => clk,
+                clk180          => clk180,
                 reset           => reset,
 
                 cmd_address     => cmd_address,

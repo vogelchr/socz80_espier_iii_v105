@@ -38,6 +38,7 @@ entity SDRAM_Controller is
       cycles_per_refresh  : natural
     );
     Port ( clk           : in  STD_LOGIC;
+           clk180        : in  STD_LOGIC;
            reset         : in  STD_LOGIC;
            
            -- Interface to issue reads or write data
@@ -192,16 +193,12 @@ begin
    --addr_col(8 downto 0)  <= cmd_address( 7 downto  0) & '0'; -- 8:0  <=  7:0 & '0'
 
    -----------------------------------------------------------
-   -- Forward the SDRAM clock to the SDRAM chip - 180 degress 
-   -- out of phase with the control signals (ensuring setup and holdup 
+   -- Forward the SDRAM clock to the SDRAM chip - 180 degress
+   -- out of phase with the control signals (ensuring setup and holdup
   -----------------------------------------------------------
-  -- ISE seems not to synthesize the "C1 => not clk" port map
-  -- Error: Actual for formal port c1 is neither a static name nor a
-  --        globally static expression.
-   not_clk <= not clk;
  sdram_clk_forward : ODDR2
    generic map(DDR_ALIGNMENT => "NONE", INIT => '0', SRTYPE => "SYNC")
-   port map (Q => sdram_clk, C0 => clk, C1 => not_clk, CE => '1', R => '0', S => '0', D0 => '0', D1 => '1');
+   port map (Q => sdram_clk, C0 => clk, C1 => clk180, CE => '1', R => '0', S => '0', D0 => '0', D1 => '1');
 
    -----------------------------------------------
    --!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
