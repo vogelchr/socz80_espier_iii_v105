@@ -223,7 +223,8 @@ begin
     end process;
 
     -- GPIO input signal routing
-    gpio_input <= coldboot & swap_uart01 & "000000";
+    gpio_input <= coldboot & swap_uart01 & "000" & console_select &
+		  button(2) & button(1);
 
     -- GPIO output signal routing
     leds(0) <= gpio_output(0);
