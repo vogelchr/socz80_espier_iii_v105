@@ -1,6 +1,6 @@
 ***************************************************************************
 **                                                                       **
-** Important: This is a fork of William R. SOwerbutts' socZ80            **
+** Important: This is a fork of William R. Sowerbutts' socZ80            **
 **            by Christian Vogel <vogelchr@vogel.cx> to support a cheap  **
 **            Spartan6 board. Most of my changes have been rather        **
 **            trivial, but any problems in the design have probably      **
